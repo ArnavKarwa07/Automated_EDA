@@ -1,12 +1,35 @@
 # AutoEDA - Automated Exploratory Data Analysis System
 
-A comprehensive web application for automated exploratory data analysis that allows users to upload CSV files and perform various data operations including cleaning, transformation, classification, and visualization.
+A comprehensive web application for automated exploratory data analysis featuring a **streamlined step-by-step workflow** that guides users through intelligent data processing and visualization.
+
+## ✨ New Step-by-Step Workflow
+
+### 🎯 **Simplified User Experience**
+
+The platform now features an intuitive step-by-step process:
+
+1. **Upload your CSV file** (up to 100MB)
+2. **Choose Analysis Mode** (AI or Manual) - applies to all subsequent steps
+3. **Select Processing Steps** - choose which operations to perform:
+   - Data Cleaning (optional)
+   - Data Transformation (optional)
+   - Data Classification (optional)
+4. **Visualize Results** with two options:
+   - **Smart Dashboard**: AI-generated consolidated view with key insights
+   - **Individual Charts**: Detailed exploration of separate visualizations
+
+### 🧠 **Intelligent Processing**
+
+- **AI Mode**: Automatic parameter selection and optimal processing pipeline
+- **Manual Mode**: Full control over configurations and options
+- **Smart Recommendations**: Context-aware suggestions throughout the process
 
 ## Features
 
 ### 🚀 Core Functionality
 
 - **File Upload**: Easy drag-and-drop CSV file upload (up to 100MB)
+- **Guided Workflow**: Step-by-step process for data analysis
 - **Multiple Operations**:
   - Data Cleaning (remove duplicates, handle missing values, outliers)
   - Data Transformation (scaling, encoding, feature engineering)
@@ -18,14 +41,17 @@ A comprehensive web application for automated exploratory data analysis that all
 - **Manual Mode**: Configure specific operations and parameters
 - **AI Mode**: Automated analysis using Groq and LangGraph
 - **Smart Insights**: AI-generated recommendations and insights
+- **MCP Integration**: Model Context Protocol for intelligent automation
 
 ### 📊 Visualizations
 
+- **Smart Dashboard**: AI-curated consolidated view with most relevant charts
+- **Individual Charts**: Detailed exploration interface
 - Interactive charts using Plotly.js
 - Distribution plots, correlation heatmaps, scatter plots
 - Box plots, bar charts, pie charts
 - Missing values analysis
-- Downloadable charts
+- Downloadable charts and dashboards
 
 ## Tech Stack
 

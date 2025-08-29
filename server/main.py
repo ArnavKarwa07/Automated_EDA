@@ -6,6 +6,16 @@ import os
 from api import router as api_router
 import uvicorn
 
+# Ensure numpy is available
+try:
+    import numpy as np
+except ImportError:
+    print("Warning: numpy not found. Installing numpy...")
+    import subprocess
+    import sys
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "numpy"])
+    import numpy as np
+
 # Load environment variables
 load_dotenv()
 
