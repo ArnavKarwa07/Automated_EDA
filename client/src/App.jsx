@@ -31,7 +31,7 @@ function App() {
 
   return (
     <ThemeProvider>
-      <Router>
+      <Router future={{ v7_relativeSplatPath: true }}>
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
           <Navbar />
           <main className="container mx-auto px-4 py-8">

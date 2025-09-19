@@ -28,7 +28,7 @@ const DashboardPage = () => {
   const fetchFileInfo = async (id) => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/file/${id}/info`);
+      const response = await fetch(`http://localhost:8000/api/file/${id}/info`);
       const data = await response.json();
 
       if (response.ok) {

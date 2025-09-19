@@ -16,6 +16,7 @@ from .ai_agent import AIAgent
 # Set up logger
 logger = logging.getLogger(__name__)
 
+
 def convert_numpy_types(obj):
     """Convert numpy types to Python native types for JSON serialization"""
     if isinstance(obj, dict):
@@ -37,16 +38,17 @@ def convert_numpy_types(obj):
     else:
         return obj
 
+
 class DashboardBuilder:
     """MCP-based automated dashboard builder"""
-    
+
     def __init__(self):
         self.chart_generator = ChartGenerator()
         self.data_processor = DataProcessor()
         self.ai_agent = AIAgent()
         self.dashboard_templates = self._load_dashboard_templates()
         self.dashboard_storage = {}  # In-memory storage for dashboards
-    
+
     def _load_dashboard_templates(self) -> Dict[str, str]:
         """Load dashboard templates for different use cases"""
         return {
@@ -55,7 +57,7 @@ class DashboardBuilder:
 <html>
 <head>
     <title>{{dataset_name}} - Interactive Dashboard</title>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -565,13 +567,12 @@ class DashboardBuilder:
 </body>
 </html>
             """,
-            
             "executive_summary": """
 <!DOCTYPE html>
 <html>
 <head>
     <title>{{dataset_name}} - Executive Summary</title>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
         .dashboard { max-width: 1400px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
@@ -642,13 +643,12 @@ class DashboardBuilder:
 </body>
 </html>
             """,
-            
             "data_quality": """
 <!DOCTYPE html>
 <html>
 <head>
     <title>{{dataset_name}} - Data Quality Report</title>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
         .dashboard { max-width: 1400px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
@@ -709,13 +709,12 @@ class DashboardBuilder:
 </body>
 </html>
             """,
-            
             "exploratory": """
 <!DOCTYPE html>
 <html>
 <head>
     <title>{{dataset_name}} - Exploratory Analysis</title>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
         .dashboard { max-width: 1400px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
@@ -789,191 +788,234 @@ class DashboardBuilder:
     </div>
 </body>
 </html>
-            """
+            """,
         }
-    
-    async def build_interactive_dashboard(self, 
-                                       dataset_name: str, 
-                                       charts: List[Dict], 
-                                       summary_stats: Dict,
-                                       raw_data: Dict = None) -> str:
+
+    async def build_interactive_dashboard(
+        self,
+        dataset_name: str,
+        charts: List[Dict],
+        summary_stats: Dict,
+        raw_data: Dict = None,
+    ) -> str:
         """Build an interactive Power BI/Tableau-style dashboard"""
         try:
             # Generate KPI metrics
             kpi_metrics = self._generate_kpi_metrics(summary_stats, raw_data)
-            
+
             # Generate chart configurations for interactive dashboard
             chart_configs = self._generate_interactive_chart_configs(charts, raw_data)
-            
+
             # Prepare template data
             template_data = {
-                'dataset_name': dataset_name,
-                'date': datetime.now().strftime('%Y-%m-%d %H:%M'),
-                'kpi_metrics': kpi_metrics,
-                'raw_data': json.dumps(convert_numpy_types(raw_data or {})),
-                'chart_configs': json.dumps(convert_numpy_types(chart_configs))
+                "dataset_name": dataset_name,
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "kpi_metrics": kpi_metrics,
+                "raw_data": json.dumps(convert_numpy_types(raw_data or {})),
+                "chart_configs": json.dumps(convert_numpy_types(chart_configs)),
             }
-            
+
             # Render template
             template = Template(self.dashboard_templates["interactive_dashboard"])
             dashboard_html = template.render(**template_data)
-            
+
             return dashboard_html
-            
+
         except Exception as e:
             logger.error(f"Error building interactive dashboard: {str(e)}")
             raise
 
-    def _generate_kpi_metrics(self, summary_stats: Dict, raw_data: Dict = None) -> List[Dict]:
+    def _generate_kpi_metrics(
+        self, summary_stats: Dict, raw_data: Dict = None
+    ) -> List[Dict]:
         """Generate KPI metrics for the dashboard"""
         kpis = []
-        
+
         try:
             # Total Records
-            total_records = len(raw_data.get('data', [])) if raw_data else summary_stats.get('total_rows', 0)
-            kpis.append({
-                'label': 'Total Records',
-                'value': f"{total_records:,}",
-                'change': None,
-                'change_class': None
-            })
-            
+            total_records = (
+                len(raw_data.get("data", []))
+                if raw_data
+                else summary_stats.get("total_rows", 0)
+            )
+            kpis.append(
+                {
+                    "label": "Total Records",
+                    "value": f"{total_records:,}",
+                    "change": None,
+                    "change_class": None,
+                }
+            )
+
             # Numeric columns count
-            numeric_cols = len(summary_stats.get('numeric_columns', []))
-            kpis.append({
-                'label': 'Numeric Features',
-                'value': str(numeric_cols),
-                'change': None,
-                'change_class': None
-            })
-            
-            # Categorical columns count  
-            cat_cols = len(summary_stats.get('categorical_columns', []))
-            kpis.append({
-                'label': 'Categorical Features',
-                'value': str(cat_cols),
-                'change': None,
-                'change_class': None
-            })
-            
+            numeric_cols = len(summary_stats.get("numeric_columns", []))
+            kpis.append(
+                {
+                    "label": "Numeric Features",
+                    "value": str(numeric_cols),
+                    "change": None,
+                    "change_class": None,
+                }
+            )
+
+            # Categorical columns count
+            cat_cols = len(summary_stats.get("categorical_columns", []))
+            kpis.append(
+                {
+                    "label": "Categorical Features",
+                    "value": str(cat_cols),
+                    "change": None,
+                    "change_class": None,
+                }
+            )
+
             # Missing data percentage
-            if 'missing_data' in summary_stats:
-                missing_pct = summary_stats['missing_data'].get('percentage', 0)
-                kpis.append({
-                    'label': 'Data Quality',
-                    'value': f"{100-missing_pct:.1f}%",
-                    'change': f"Missing: {missing_pct:.1f}%",
-                    'change_class': 'negative' if missing_pct > 10 else 'positive'
-                })
-            
+            if "missing_data" in summary_stats:
+                missing_pct = summary_stats["missing_data"].get("percentage", 0)
+                kpis.append(
+                    {
+                        "label": "Data Quality",
+                        "value": f"{100-missing_pct:.1f}%",
+                        "change": f"Missing: {missing_pct:.1f}%",
+                        "change_class": "negative" if missing_pct > 10 else "positive",
+                    }
+                )
+
             # If we have numeric data, add statistical KPIs
-            if raw_data and 'numeric_columns' in summary_stats:
-                for col in summary_stats['numeric_columns'][:2]:  # Top 2 numeric columns
-                    if col in summary_stats.get('column_stats', {}):
-                        stats = summary_stats['column_stats'][col]
-                        kpis.append({
-                            'label': f"Avg {col.title()}",
-                            'value': f"{stats.get('mean', 0):.2f}",
-                            'change': f"σ: {stats.get('std', 0):.2f}",
-                            'change_class': None
-                        })
-                        
+            if raw_data and "numeric_columns" in summary_stats:
+                for col in summary_stats["numeric_columns"][
+                    :2
+                ]:  # Top 2 numeric columns
+                    if col in summary_stats.get("column_stats", {}):
+                        stats = summary_stats["column_stats"][col]
+                        kpis.append(
+                            {
+                                "label": f"Avg {col.title()}",
+                                "value": f"{stats.get('mean', 0):.2f}",
+                                "change": f"σ: {stats.get('std', 0):.2f}",
+                                "change_class": None,
+                            }
+                        )
+
         except Exception as e:
             logger.error(f"Error generating KPIs: {str(e)}")
             # Fallback KPIs
             kpis = [
-                {'label': 'Total Records', 'value': 'N/A', 'change': None, 'change_class': None},
-                {'label': 'Features', 'value': 'N/A', 'change': None, 'change_class': None},
-                {'label': 'Data Quality', 'value': 'N/A', 'change': None, 'change_class': None}
+                {
+                    "label": "Total Records",
+                    "value": "N/A",
+                    "change": None,
+                    "change_class": None,
+                },
+                {
+                    "label": "Features",
+                    "value": "N/A",
+                    "change": None,
+                    "change_class": None,
+                },
+                {
+                    "label": "Data Quality",
+                    "value": "N/A",
+                    "change": None,
+                    "change_class": None,
+                },
             ]
-        
+
         return kpis
 
-    async def build_ai_interactive_dashboard(self, 
-                                           dataset_name: str, 
-                                           df: pd.DataFrame,
-                                           charts: List[Dict], 
-                                           summary_stats: Dict,
-                                           raw_data: Dict = None,
-                                           business_context: str = "") -> str:
-        """Build an AI-generated interactive dashboard using Groq for intelligent layout and insights"""
+    async def build_ai_interactive_dashboard(
+        self,
+        dataset_name: str,
+        df: pd.DataFrame,
+        charts: List[Dict],
+        summary_stats: Dict,
+        raw_data: Dict = None,
+        business_context: str = "",
+    ) -> str:
+        """Build an AI-generated interactive dashboard using agentic pipeline for layout and insights"""
         try:
-            # Use AI to analyze the data and generate dashboard structure
-            ai_analysis = await self._generate_ai_dashboard_structure(df, summary_stats, business_context)
-            
-            # Generate AI-powered insights
-            ai_insights = await self._generate_ai_insights(df, business_context)
-            
+            # Use agentic analysis to suggest structure
+            ai_analysis = await self.ai_agent.analyze_data(df)
+            # Generate insights deterministically
+            ai_insights = await self.ai_agent.generate_insights(df)
+
             # Create AI-optimized chart configurations
-            chart_configs = await self._generate_ai_chart_configs(charts, raw_data, ai_analysis)
-            
+            chart_configs = await self._generate_ai_chart_configs(
+                charts, raw_data, ai_analysis.get("ai_analysis", {})
+            )
+
             # Generate KPI metrics with AI recommendations
-            kpi_metrics = await self._generate_ai_kpi_metrics(summary_stats, raw_data, ai_analysis)
-            
+            kpi_metrics = await self._generate_ai_kpi_metrics(
+                summary_stats, raw_data, ai_analysis.get("ai_analysis", {})
+            )
+
             # Create the dashboard HTML with AI-generated content
             dashboard_html = await self._render_ai_dashboard(
-                dataset_name, kpi_metrics, chart_configs, ai_insights, ai_analysis
+                dataset_name,
+                kpi_metrics,
+                chart_configs,
+                ai_insights,
+                ai_analysis.get("ai_analysis", {}),
             )
-            
+
             return dashboard_html
-            
+
         except Exception as e:
             logger.error(f"Error building AI interactive dashboard: {str(e)}")
             # Fallback to template-based dashboard
-            return await self.build_interactive_dashboard(dataset_name, charts, summary_stats, raw_data)
-
-    async def _generate_ai_dashboard_structure(self, df: pd.DataFrame, summary_stats: Dict, business_context: str) -> Dict:
-        """Use Groq AI to analyze data and suggest optimal dashboard structure"""
-        try:
-            prompt = f"""
-            Analyze this dataset and suggest an optimal dashboard structure:
-            
-            Dataset Info:
-            - Shape: {df.shape}
-            - Columns: {list(df.columns)}
-            - Numeric columns: {summary_stats.get('numeric_columns', [])}
-            - Categorical columns: {summary_stats.get('categorical_columns', [])}
-            - Missing data: {summary_stats.get('missing_data', {})}
-            
-            Business Context: {business_context or 'General data analysis'}
-            
-            Return a JSON response with:
-            1. "priority_insights": List of 3-5 key insights to highlight
-            2. "recommended_layout": Suggested dashboard sections and their priority
-            3. "key_metrics": Most important KPIs to display prominently
-            4. "chart_priorities": Which chart types are most valuable for this data
-            5. "narrative": Brief narrative explaining the data story
-            
-            Focus on actionable insights and business value.
-            """
-            
-            response = self.ai_agent.groq_client.chat.completions.create(
-                messages=[
-                    {"role": "system", "content": "You are a senior data analyst and dashboard design expert. Create insightful, business-focused dashboard recommendations."},
-                    {"role": "user", "content": prompt}
-                ],
-                model="llama3-8b-8192",
-                temperature=0.3
+            return await self.build_interactive_dashboard(
+                dataset_name, charts, summary_stats, raw_data
             )
-            
-            return json.loads(response.choices[0].message.content)
-            
-        except Exception as e:
-            logger.error(f"Error generating AI dashboard structure: {str(e)}")
+
+    async def _generate_ai_dashboard_structure(
+        self, df: pd.DataFrame, summary_stats: Dict, business_context: str
+    ) -> Dict:
+        """Backwards-compatible stub retained for internal calls; now returns heuristic structure."""
+        try:
+            numeric_columns = summary_stats.get(
+                "numeric_columns", df.select_dtypes(include=["number"]).columns.tolist()
+            )
+            categorical_columns = summary_stats.get(
+                "categorical_columns",
+                df.select_dtypes(exclude=["number"]).columns.tolist(),
+            )
             return {
-                "priority_insights": ["Data quality analysis", "Distribution patterns", "Key correlations"],
-                "recommended_layout": {"kpis": 1, "trends": 2, "distributions": 3, "correlations": 4},
+                "priority_insights": [
+                    "Data quality analysis",
+                    "Distribution patterns",
+                    "Key correlations",
+                ],
+                "recommended_layout": {
+                    "kpis": 1,
+                    "trends": 2,
+                    "distributions": 3,
+                    "correlations": 4,
+                },
                 "key_metrics": ["Total Records", "Data Quality", "Key Features"],
                 "chart_priorities": ["bar", "line", "scatter", "histogram"],
-                "narrative": "This dashboard provides a comprehensive overview of your data."
+                "narrative": "This dashboard provides a comprehensive overview of your data.",
+                "numeric_columns": numeric_columns,
+                "categorical_columns": categorical_columns,
+            }
+        except Exception:
+            return {
+                "priority_insights": ["Data overview"],
+                "recommended_layout": {"kpis": 1, "trends": 2},
+                "key_metrics": ["Total Records"],
+                "chart_priorities": ["bar", "line"],
+                "narrative": "Overview",
             }
 
-    async def _generate_ai_insights(self, df: pd.DataFrame, business_context: str) -> List[str]:
-        """Generate AI-powered insights about the data"""
+    async def _generate_ai_insights(
+        self, df: pd.DataFrame, business_context: str
+    ) -> List[str]:
+        """Generate AI-powered insights about the data (agentic)"""
         try:
             # Get sample data for analysis
-            sample_data = df.head(10).to_string() if len(df) > 0 else "No data available"
-            
+            sample_data = (
+                df.head(10).to_string() if len(df) > 0 else "No data available"
+            )
+
             prompt = f"""
             Analyze this data sample and provide 5-7 specific, actionable insights:
             
@@ -990,188 +1032,239 @@ class DashboardBuilder:
             
             Make insights specific and valuable, not generic.
             """
-            
-            response = self.ai_agent.groq_client.chat.completions.create(
-                messages=[
-                    {"role": "system", "content": "You are a data scientist providing actionable business insights from data analysis."},
-                    {"role": "user", "content": prompt}
-                ],
-                model="llama3-8b-8192",
-                temperature=0.4
-            )
-            
-            insights = json.loads(response.choices[0].message.content)
+
+            # Use internal agent to get deterministic insights
+            deterministic = await self.ai_agent.generate_insights(df)
+            insights = deterministic.get("key_findings", [])
             return insights if isinstance(insights, list) else [str(insights)]
-            
+
         except Exception as e:
             logger.error(f"Error generating AI insights: {str(e)}")
             return [
                 "Data analysis completed successfully",
                 "Multiple variables show interesting patterns",
                 "Consider data quality improvements where needed",
-                "Further investigation recommended for key metrics"
+                "Further investigation recommended for key metrics",
             ]
 
-    async def _generate_ai_chart_configs(self, charts: List[Dict], raw_data: Dict, ai_analysis: Dict) -> Dict:
+    async def _generate_ai_chart_configs(
+        self, charts: List[Dict], raw_data: Dict, ai_analysis: Dict
+    ) -> Dict:
         """Generate optimized chart configurations based on AI analysis"""
         configs = {}
-        
+
         try:
             # Prioritize charts based on AI recommendations
-            chart_priorities = ai_analysis.get('chart_priorities', ['bar', 'line', 'scatter'])
-            
+            chart_priorities = ai_analysis.get(
+                "chart_priorities", ["bar", "line", "scatter"]
+            )
+
             # Map charts to dashboard positions based on priority
-            available_charts = {chart.get('type', 'unknown'): chart for chart in charts}
-            
+            available_charts = {chart.get("type", "unknown"): chart for chart in charts}
+
             # Main trend chart (highest priority)
-            if 'line' in available_charts or 'bar' in available_charts:
-                main_chart = available_charts.get('line', available_charts.get('bar'))
+            if "line" in available_charts or "bar" in available_charts:
+                main_chart = available_charts.get("line", available_charts.get("bar"))
                 if main_chart:
-                    configs['mainTrend'] = {
-                        'type': main_chart.get('type', 'bar'),
-                        'data': main_chart.get('data', {}),
-                        'title': f"Key Trends - {main_chart.get('title', 'Primary Analysis')}",
-                        'config': main_chart.get('config', {})
+                    configs["mainTrend"] = {
+                        "type": main_chart.get("type", "bar"),
+                        "data": main_chart.get("data", {}),
+                        "title": f"Key Trends - {main_chart.get('title', 'Primary Analysis')}",
+                        "config": main_chart.get("config", {}),
                     }
-            
+
             # Distribution analysis
-            if 'histogram' in available_charts or 'box' in available_charts:
-                dist_chart = available_charts.get('histogram', available_charts.get('box'))
+            if "histogram" in available_charts or "box" in available_charts:
+                dist_chart = available_charts.get(
+                    "histogram", available_charts.get("box")
+                )
                 if dist_chart:
-                    configs['distribution'] = {
-                        'type': dist_chart.get('type', 'histogram'),
-                        'data': dist_chart.get('data', {}),
-                        'title': f"Data Distribution - {dist_chart.get('title', 'Value Analysis')}",
-                        'config': dist_chart.get('config', {})
+                    configs["distribution"] = {
+                        "type": dist_chart.get("type", "histogram"),
+                        "data": dist_chart.get("data", {}),
+                        "title": f"Data Distribution - {dist_chart.get('title', 'Value Analysis')}",
+                        "config": dist_chart.get("config", {}),
                     }
-            
+
             # Correlation/relationship analysis
-            if 'scatter' in available_charts or 'heatmap' in available_charts:
-                corr_chart = available_charts.get('scatter', available_charts.get('heatmap'))
+            if "scatter" in available_charts or "heatmap" in available_charts:
+                corr_chart = available_charts.get(
+                    "scatter", available_charts.get("heatmap")
+                )
                 if corr_chart:
-                    configs['correlation'] = {
-                        'type': corr_chart.get('type', 'scatter'),
-                        'data': corr_chart.get('data', {}),
-                        'title': f"Relationships - {corr_chart.get('title', 'Correlation Analysis')}",
-                        'config': corr_chart.get('config', {})
+                    configs["correlation"] = {
+                        "type": corr_chart.get("type", "scatter"),
+                        "data": corr_chart.get("data", {}),
+                        "title": f"Relationships - {corr_chart.get('title', 'Correlation Analysis')}",
+                        "config": corr_chart.get("config", {}),
                     }
-            
+
             # Fill remaining positions with available charts
-            remaining_charts = [chart for chart in charts if chart.get('type') not in [
-                configs.get('mainTrend', {}).get('type'),
-                configs.get('distribution', {}).get('type'),
-                configs.get('correlation', {}).get('type')
-            ]]
-            
-            if remaining_charts and 'topPerformers' not in configs:
-                configs['topPerformers'] = {
-                    'type': remaining_charts[0].get('type', 'bar'),
-                    'data': remaining_charts[0].get('data', {}),
-                    'title': f"Analysis - {remaining_charts[0].get('title', 'Additional Insights')}",
-                    'config': remaining_charts[0].get('config', {})
+            remaining_charts = [
+                chart
+                for chart in charts
+                if chart.get("type")
+                not in [
+                    configs.get("mainTrend", {}).get("type"),
+                    configs.get("distribution", {}).get("type"),
+                    configs.get("correlation", {}).get("type"),
+                ]
+            ]
+
+            if remaining_charts and "topPerformers" not in configs:
+                configs["topPerformers"] = {
+                    "type": remaining_charts[0].get("type", "bar"),
+                    "data": remaining_charts[0].get("data", {}),
+                    "title": f"Analysis - {remaining_charts[0].get('title', 'Additional Insights')}",
+                    "config": remaining_charts[0].get("config", {}),
                 }
-            
+
             return configs
-            
+
         except Exception as e:
             logger.error(f"Error generating AI chart configs: {str(e)}")
             return self._generate_interactive_chart_configs(charts, raw_data)
 
-    async def _generate_ai_kpi_metrics(self, summary_stats: Dict, raw_data: Dict, ai_analysis: Dict) -> List[Dict]:
+    async def _generate_ai_kpi_metrics(
+        self, summary_stats: Dict, raw_data: Dict, ai_analysis: Dict
+    ) -> List[Dict]:
         """Generate AI-recommended KPI metrics"""
         kpis = []
-        
+
         try:
-            recommended_metrics = ai_analysis.get('key_metrics', ['Total Records', 'Data Quality', 'Key Features'])
-            
+            recommended_metrics = ai_analysis.get(
+                "key_metrics", ["Total Records", "Data Quality", "Key Features"]
+            )
+
             # Generate KPIs based on AI recommendations
             for metric_name in recommended_metrics[:6]:  # Limit to 6 KPIs
-                if 'Total Records' in metric_name or 'Records' in metric_name:
-                    total_records = len(raw_data.get('data', [])) if raw_data else summary_stats.get('total_rows', 0)
-                    kpis.append({
-                        'label': 'Total Records',
-                        'value': f"{total_records:,}",
-                        'change': None,
-                        'change_class': None
-                    })
-                elif 'Data Quality' in metric_name or 'Quality' in metric_name:
-                    missing_pct = summary_stats.get('missing_data', {}).get('percentage', 0)
-                    kpis.append({
-                        'label': 'Data Quality',
-                        'value': f"{100-missing_pct:.1f}%",
-                        'change': f"Missing: {missing_pct:.1f}%",
-                        'change_class': 'negative' if missing_pct > 10 else 'positive'
-                    })
-                elif 'Features' in metric_name or 'Columns' in metric_name:
-                    total_features = len(summary_stats.get('numeric_columns', [])) + len(summary_stats.get('categorical_columns', []))
-                    kpis.append({
-                        'label': 'Total Features',
-                        'value': str(total_features),
-                        'change': f"Numeric: {len(summary_stats.get('numeric_columns', []))}",
-                        'change_class': 'neutral'
-                    })
-                elif 'Numeric' in metric_name:
-                    numeric_cols = len(summary_stats.get('numeric_columns', []))
-                    kpis.append({
-                        'label': 'Numeric Features',
-                        'value': str(numeric_cols),
-                        'change': None,
-                        'change_class': None
-                    })
-                elif 'Categorical' in metric_name:
-                    cat_cols = len(summary_stats.get('categorical_columns', []))
-                    kpis.append({
-                        'label': 'Categorical Features',
-                        'value': str(cat_cols),
-                        'change': None,
-                        'change_class': None
-                    })
-            
+                if "Total Records" in metric_name or "Records" in metric_name:
+                    total_records = (
+                        len(raw_data.get("data", []))
+                        if raw_data
+                        else summary_stats.get("total_rows", 0)
+                    )
+                    kpis.append(
+                        {
+                            "label": "Total Records",
+                            "value": f"{total_records:,}",
+                            "change": None,
+                            "change_class": None,
+                        }
+                    )
+                elif "Data Quality" in metric_name or "Quality" in metric_name:
+                    missing_pct = summary_stats.get("missing_data", {}).get(
+                        "percentage", 0
+                    )
+                    kpis.append(
+                        {
+                            "label": "Data Quality",
+                            "value": f"{100-missing_pct:.1f}%",
+                            "change": f"Missing: {missing_pct:.1f}%",
+                            "change_class": (
+                                "negative" if missing_pct > 10 else "positive"
+                            ),
+                        }
+                    )
+                elif "Features" in metric_name or "Columns" in metric_name:
+                    total_features = len(
+                        summary_stats.get("numeric_columns", [])
+                    ) + len(summary_stats.get("categorical_columns", []))
+                    kpis.append(
+                        {
+                            "label": "Total Features",
+                            "value": str(total_features),
+                            "change": f"Numeric: {len(summary_stats.get('numeric_columns', []))}",
+                            "change_class": "neutral",
+                        }
+                    )
+                elif "Numeric" in metric_name:
+                    numeric_cols = len(summary_stats.get("numeric_columns", []))
+                    kpis.append(
+                        {
+                            "label": "Numeric Features",
+                            "value": str(numeric_cols),
+                            "change": None,
+                            "change_class": None,
+                        }
+                    )
+                elif "Categorical" in metric_name:
+                    cat_cols = len(summary_stats.get("categorical_columns", []))
+                    kpis.append(
+                        {
+                            "label": "Categorical Features",
+                            "value": str(cat_cols),
+                            "change": None,
+                            "change_class": None,
+                        }
+                    )
+
             # If we don't have enough KPIs, add default ones
             while len(kpis) < 4:
-                kpis.extend([
-                    {'label': 'Analysis Complete', 'value': '✓', 'change': None, 'change_class': 'positive'},
-                    {'label': 'Charts Generated', 'value': str(len(summary_stats.get('charts', []))), 'change': None, 'change_class': None}
-                ])
+                kpis.extend(
+                    [
+                        {
+                            "label": "Analysis Complete",
+                            "value": "✓",
+                            "change": None,
+                            "change_class": "positive",
+                        },
+                        {
+                            "label": "Charts Generated",
+                            "value": str(len(summary_stats.get("charts", []))),
+                            "change": None,
+                            "change_class": None,
+                        },
+                    ]
+                )
                 break
-            
+
             return kpis[:6]  # Return max 6 KPIs
-            
+
         except Exception as e:
             logger.error(f"Error generating AI KPI metrics: {str(e)}")
             return self._generate_kpi_metrics(summary_stats, raw_data)
 
-    async def _render_ai_dashboard(self, dataset_name: str, kpi_metrics: List[Dict], 
-                                  chart_configs: Dict, ai_insights: List[str], 
-                                  ai_analysis: Dict) -> str:
+    async def _render_ai_dashboard(
+        self,
+        dataset_name: str,
+        kpi_metrics: List[Dict],
+        chart_configs: Dict,
+        ai_insights: List[str],
+        ai_analysis: Dict,
+    ) -> str:
         """Render the AI-generated dashboard HTML"""
         try:
             # Create enhanced template data with AI insights
             template_data = {
-                'dataset_name': dataset_name,
-                'date': datetime.now().strftime('%Y-%m-%d %H:%M'),
-                'kpi_metrics': kpi_metrics,
-                'chart_configs': json.dumps(convert_numpy_types(chart_configs)),
-                'ai_insights': ai_insights,
-                'ai_narrative': ai_analysis.get('narrative', 'AI-generated insights for your data analysis.'),
-                'raw_data': json.dumps({})  # We'll focus on charts rather than raw data
+                "dataset_name": dataset_name,
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "kpi_metrics": kpi_metrics,
+                "chart_configs": json.dumps(convert_numpy_types(chart_configs)),
+                "ai_insights": ai_insights,
+                "ai_narrative": ai_analysis.get(
+                    "narrative", "AI-generated insights for your data analysis."
+                ),
+                "raw_data": json.dumps(
+                    {}
+                ),  # We'll focus on charts rather than raw data
             }
-            
+
             # Use enhanced template with AI insights
             template = Template(self._get_ai_dashboard_template())
             dashboard_html = template.render(**template_data)
-            
+
             return dashboard_html
-            
+
         except Exception as e:
             logger.error(f"Error rendering AI dashboard: {str(e)}")
             # Fallback to regular template
             template_data = {
-                'dataset_name': dataset_name,
-                'date': datetime.now().strftime('%Y-%m-%d %H:%M'),
-                'kpi_metrics': kpi_metrics,
-                'chart_configs': json.dumps(convert_numpy_types(chart_configs)),
-                'raw_data': json.dumps({})
+                "dataset_name": dataset_name,
+                "date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "kpi_metrics": kpi_metrics,
+                "chart_configs": json.dumps(convert_numpy_types(chart_configs)),
+                "raw_data": json.dumps({}),
             }
             template = Template(self.dashboard_templates["interactive_dashboard"])
             return template.render(**template_data)
@@ -1185,8 +1278,9 @@ class DashboardBuilder:
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI-Powered Dashboard - {{ dataset_name }}</title>
-    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
+    <!-- Tailwind CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
         .kpi-card { transition: transform 0.2s; }
         .kpi-card:hover { transform: translateY(-2px); }
@@ -1328,339 +1422,403 @@ class DashboardBuilder:
 </html>
         """
 
-    def _generate_interactive_chart_configs(self, charts: List[Dict], raw_data: Dict = None) -> Dict:
+    def _generate_interactive_chart_configs(
+        self, charts: List[Dict], raw_data: Optional[Dict] = None
+    ) -> Dict:
         """Generate chart configurations for interactive dashboard"""
         configs = {}
-        
+
         try:
             # Map charts to dashboard positions
             chart_mapping = {
-                'mainTrend': None,
-                'distribution': None, 
-                'correlation': None,
-                'topPerformers': None,
-                'detailed': None,
-                'summary': None
+                "mainTrend": None,
+                "distribution": None,
+                "correlation": None,
+                "topPerformers": None,
+                "detailed": None,
+                "summary": None,
             }
-            
+
             # Assign charts based on type
             for chart in charts:
-                chart_type = chart.get('type', '').lower()
+                chart_type = chart.get("type", "").lower()
                 chart_config = {
-                    'data': chart.get('data', []),
-                    'layout': chart.get('layout', {})
+                    "data": chart.get("data", []),
+                    "layout": chart.get("layout", {}),
                 }
-                
+
                 # Enhance layout for dashboard
-                chart_config['layout'].update({
-                    'margin': {'l': 40, 'r': 20, 't': 40, 'b': 40},
-                    'font': {'family': 'Segoe UI, sans-serif', 'size': 12},
-                    'paper_bgcolor': 'rgba(0,0,0,0)',
-                    'plot_bgcolor': 'rgba(0,0,0,0)',
-                    'showlegend': True
-                })
-                
-                if 'line' in chart_type or 'time' in chart_type or 'trend' in chart_type:
-                    chart_mapping['mainTrend'] = chart_config
-                elif 'bar' in chart_type or 'histogram' in chart_type or 'distribution' in chart_type:
-                    chart_mapping['distribution'] = chart_config
-                elif 'heatmap' in chart_type or 'correlation' in chart_type:
-                    chart_mapping['correlation'] = chart_config
-                elif 'pie' in chart_type or 'donut' in chart_type:
-                    chart_mapping['topPerformers'] = chart_config
-                elif 'scatter' in chart_type or 'bubble' in chart_type:
-                    chart_mapping['detailed'] = chart_config
-                elif 'box' in chart_type or 'violin' in chart_type:
-                    chart_mapping['summary'] = chart_config
-            
+                chart_config["layout"].update(
+                    {
+                        "margin": {"l": 40, "r": 20, "t": 40, "b": 40},
+                        "font": {"family": "Segoe UI, sans-serif", "size": 12},
+                        "paper_bgcolor": "rgba(0,0,0,0)",
+                        "plot_bgcolor": "rgba(0,0,0,0)",
+                        "showlegend": True,
+                    }
+                )
+
+                if (
+                    "line" in chart_type
+                    or "time" in chart_type
+                    or "trend" in chart_type
+                ):
+                    chart_mapping["mainTrend"] = chart_config
+                elif (
+                    "bar" in chart_type
+                    or "histogram" in chart_type
+                    or "distribution" in chart_type
+                ):
+                    chart_mapping["distribution"] = chart_config
+                elif "heatmap" in chart_type or "correlation" in chart_type:
+                    chart_mapping["correlation"] = chart_config
+                elif "pie" in chart_type or "donut" in chart_type:
+                    chart_mapping["topPerformers"] = chart_config
+                elif "scatter" in chart_type or "bubble" in chart_type:
+                    chart_mapping["detailed"] = chart_config
+                elif "box" in chart_type or "violin" in chart_type:
+                    chart_mapping["summary"] = chart_config
+
             # Fill empty slots with default charts
             self._fill_empty_chart_slots(chart_mapping, raw_data)
-            
+
             return chart_mapping
-            
+
         except Exception as e:
             logger.error(f"Error generating chart configs: {str(e)}")
             return {}
 
-    def _fill_empty_chart_slots(self, chart_mapping: Dict, raw_data: Dict = None):
+    def _fill_empty_chart_slots(
+        self, chart_mapping: Dict, raw_data: Optional[Dict] = None
+    ):
         """Fill empty chart slots with default visualizations"""
         try:
             # Create placeholder charts for empty slots
             for slot, config in chart_mapping.items():
                 if config is None:
                     chart_mapping[slot] = self._create_placeholder_chart(slot)
-                    
+
         except Exception as e:
             logger.error(f"Error filling chart slots: {str(e)}")
 
     def _create_placeholder_chart(self, slot: str) -> Dict:
         """Create a placeholder chart for empty slots"""
-        placeholder_data = [{
-            'x': ['No Data', 'Available'],
-            'y': [1, 1],
-            'type': 'bar',
-            'marker': {'color': '#e9ecef'},
-            'name': 'Placeholder'
-        }]
-        
+        placeholder_data = [
+            {
+                "x": ["No Data", "Available"],
+                "y": [1, 1],
+                "type": "bar",
+                "marker": {"color": "#e9ecef"},
+                "name": "Placeholder",
+            }
+        ]
+
         placeholder_layout = {
-            'title': f'{slot.title()} - Data Processing',
-            'xaxis': {'title': 'Status'},
-            'yaxis': {'title': 'Value'},
-            'margin': {'l': 40, 'r': 20, 't': 40, 'b': 40},
-            'font': {'family': 'Segoe UI, sans-serif', 'size': 12},
-            'paper_bgcolor': 'rgba(0,0,0,0)',
-            'plot_bgcolor': 'rgba(0,0,0,0)'
+            "title": f"{slot.title()} - Data Processing",
+            "xaxis": {"title": "Status"},
+            "yaxis": {"title": "Value"},
+            "margin": {"l": 40, "r": 20, "t": 40, "b": 40},
+            "font": {"family": "Segoe UI, sans-serif", "size": 12},
+            "paper_bgcolor": "rgba(0,0,0,0)",
+            "plot_bgcolor": "rgba(0,0,0,0)",
         }
-        
-        return {
-            'data': placeholder_data,
-            'layout': placeholder_layout
-        }
-    
-    async def analyze_dashboard_requirements(self, df: pd.DataFrame, dashboard_type: str = "auto") -> Dict[str, Any]:
+
+        return {"data": placeholder_data, "layout": placeholder_layout}
+
+    async def analyze_dashboard_requirements(
+        self, df: pd.DataFrame, dashboard_type: str = "auto"
+    ) -> Dict[str, Any]:
         """Analyze dataset and determine dashboard requirements using MCP approach"""
-        
+
         # Get basic dataset info
         basic_info = self.data_processor.get_basic_info(df)
-        
+
         # Analyze data characteristics
-        numerical_cols = df.select_dtypes(include=['number']).columns.tolist()
-        categorical_cols = df.select_dtypes(include=['object']).columns.tolist()
-        datetime_cols = df.select_dtypes(include=['datetime']).columns.tolist()
-        
+        numerical_cols = df.select_dtypes(include=["number"]).columns.tolist()
+        categorical_cols = df.select_dtypes(include=["object"]).columns.tolist()
+        datetime_cols = df.select_dtypes(include=["datetime"]).columns.tolist()
+
         # Determine optimal dashboard type if auto
         if dashboard_type == "auto":
             missing_percentage = (df.isnull().sum().sum() / df.size) * 100
-            
+
             if missing_percentage > 15 or df.duplicated().sum() > 0:
                 dashboard_type = "data_quality"
             elif len(numerical_cols) > 3 and len(categorical_cols) > 1:
                 dashboard_type = "exploratory"
             else:
                 dashboard_type = "executive_summary"
-        
+
         # Define requirements based on type
         requirements = {
             "type": dashboard_type,
             "dataset_info": basic_info,
-            "suggested_charts": await self._suggest_charts(df, numerical_cols, categorical_cols, datetime_cols),
-            "layout_preferences": self._determine_layout_preferences(df, dashboard_type),
+            "suggested_charts": await self._suggest_charts(
+                df, numerical_cols, categorical_cols, datetime_cols
+            ),
+            "layout_preferences": self._determine_layout_preferences(
+                df, dashboard_type
+            ),
             "priority_insights": await self._identify_priority_insights(df),
-            "customization_options": self._get_customization_options(dashboard_type)
+            "customization_options": self._get_customization_options(dashboard_type),
         }
-        
+
         return requirements
-    
-    async def _suggest_charts(self, df: pd.DataFrame, numerical_cols: List[str], 
-                       categorical_cols: List[str], datetime_cols: List[str]) -> List[Dict[str, Any]]:
+
+    async def _suggest_charts(
+        self,
+        df: pd.DataFrame,
+        numerical_cols: List[str],
+        categorical_cols: List[str],
+        datetime_cols: List[str],
+    ) -> List[Dict[str, Any]]:
         """Suggest appropriate charts based on data characteristics"""
-        
+
         suggestions = []
-        
+
         # Distribution charts for numerical data
         for col in numerical_cols[:3]:  # Limit to top 3
-            suggestions.append({
-                "type": "histogram",
-                "columns": [col],
-                "priority": "high" if df[col].nunique() > 10 else "medium",
-                "reason": f"Distribution analysis of {col}",
-                "chart_config": {"bins": 30, "opacity": 0.7}
-            })
-        
+            suggestions.append(
+                {
+                    "type": "histogram",
+                    "columns": [col],
+                    "priority": "high" if df[col].nunique() > 10 else "medium",
+                    "reason": f"Distribution analysis of {col}",
+                    "chart_config": {"bins": 30, "opacity": 0.7},
+                }
+            )
+
         # Categorical analysis
         for col in categorical_cols[:2]:  # Limit to top 2
             if df[col].nunique() <= 20:
-                suggestions.append({
-                    "type": "bar",
-                    "columns": [col],
-                    "priority": "high",
-                    "reason": f"Category distribution of {col}",
-                    "chart_config": {"opacity": 0.8}
-                })
-        
+                suggestions.append(
+                    {
+                        "type": "bar",
+                        "columns": [col],
+                        "priority": "high",
+                        "reason": f"Category distribution of {col}",
+                        "chart_config": {"opacity": 0.8},
+                    }
+                )
+
         # Correlation analysis
         if len(numerical_cols) > 1:
-            suggestions.append({
-                "type": "heatmap",
-                "columns": numerical_cols[:6],  # Limit for readability
-                "priority": "high",
-                "reason": "Correlation analysis between numerical variables",
-                "chart_config": {"colorscale": "Viridis"}
-            })
-        
+            suggestions.append(
+                {
+                    "type": "heatmap",
+                    "columns": numerical_cols[:6],  # Limit for readability
+                    "priority": "high",
+                    "reason": "Correlation analysis between numerical variables",
+                    "chart_config": {"colorscale": "Viridis"},
+                }
+            )
+
         # Relationship analysis
         if len(numerical_cols) >= 2:
-            suggestions.append({
-                "type": "scatter",
-                "columns": numerical_cols[:2],
-                "priority": "medium",
-                "reason": f"Relationship between {numerical_cols[0]} and {numerical_cols[1]}",
-                "chart_config": {"opacity": 0.7}
-            })
-        
+            suggestions.append(
+                {
+                    "type": "scatter",
+                    "columns": numerical_cols[:2],
+                    "priority": "medium",
+                    "reason": f"Relationship between {numerical_cols[0]} and {numerical_cols[1]}",
+                    "chart_config": {"opacity": 0.7},
+                }
+            )
+
         # Missing values analysis
         missing_count = df.isnull().sum().sum()
         if missing_count > 0:
-            suggestions.append({
-                "type": "missing_values",
-                "columns": list(df.columns),
-                "priority": "high",
-                "reason": "Missing values pattern analysis",
-                "chart_config": {}
-            })
-        
+            suggestions.append(
+                {
+                    "type": "missing_values",
+                    "columns": list(df.columns),
+                    "priority": "high",
+                    "reason": "Missing values pattern analysis",
+                    "chart_config": {},
+                }
+            )
+
         return suggestions
-    
-    def _determine_layout_preferences(self, df: pd.DataFrame, dashboard_type: str) -> Dict[str, Any]:
+
+    def _determine_layout_preferences(
+        self, df: pd.DataFrame, dashboard_type: str
+    ) -> Dict[str, Any]:
         """Determine optimal layout based on data and dashboard type"""
-        
+
         layout_preferences = {
             "executive_summary": {
                 "sections": ["summary_metrics", "key_charts", "insights"],
                 "chart_layout": "grid",
-                "priority_order": ["metrics", "trends", "distributions"]
+                "priority_order": ["metrics", "trends", "distributions"],
             },
             "data_quality": {
                 "sections": ["quality_score", "missing_data", "duplicates", "outliers"],
                 "chart_layout": "stacked",
-                "priority_order": ["quality", "completeness", "consistency"]
+                "priority_order": ["quality", "completeness", "consistency"],
             },
             "exploratory": {
                 "sections": ["overview", "distributions", "relationships", "patterns"],
                 "chart_layout": "mixed",
-                "priority_order": ["distributions", "correlations", "outliers"]
-            }
+                "priority_order": ["distributions", "correlations", "outliers"],
+            },
         }
-        
+
         return layout_preferences.get(dashboard_type, layout_preferences["exploratory"])
-    
-    async def _identify_priority_insights(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+
+    async def _identify_priority_insights(
+        self, df: pd.DataFrame
+    ) -> List[Dict[str, Any]]:
         """Use AI to identify priority insights for the dashboard"""
-        
+
         try:
             # Use your existing AI agent
             analysis = await self.ai_agent.analyze_data(df)
-            
+
             priority_insights = []
-            
+
             # Extract key insights from AI analysis
-            if "ai_analysis" in analysis and "recommendations" in analysis["ai_analysis"]:
-                for i, recommendation in enumerate(analysis["ai_analysis"]["recommendations"][:5]):
-                    priority_insights.append({
-                        "title": f"Key Finding {i+1}",
-                        "description": recommendation,
-                        "priority": "high" if i < 2 else "medium",
-                        "type": "recommendation",
-                        "recommendations": []
-                    })
-            
+            if (
+                "ai_analysis" in analysis
+                and "recommendations" in analysis["ai_analysis"]
+            ):
+                for i, recommendation in enumerate(
+                    analysis["ai_analysis"]["recommendations"][:5]
+                ):
+                    priority_insights.append(
+                        {
+                            "title": f"Key Finding {i+1}",
+                            "description": recommendation,
+                            "priority": "high" if i < 2 else "medium",
+                            "type": "recommendation",
+                            "recommendations": [],
+                        }
+                    )
+
             # Add data quality insights
-            missing_percentage = (df.isnull().sum().sum() / (df.shape[0] * df.shape[1])) * 100
+            missing_percentage = (
+                df.isnull().sum().sum() / (df.shape[0] * df.shape[1])
+            ) * 100
             if missing_percentage > 5:
-                priority_insights.append({
-                    "title": "Data Completeness Alert",
-                    "description": f"Dataset has {missing_percentage:.1f}% missing values requiring attention",
-                    "priority": "high" if missing_percentage > 20 else "medium",
-                    "type": "quality",
-                    "recommendations": [
-                        "Consider imputation strategies for missing values",
-                        "Analyze missing data patterns",
-                        "Evaluate impact on analysis"
-                    ]
-                })
-            
+                priority_insights.append(
+                    {
+                        "title": "Data Completeness Alert",
+                        "description": f"Dataset has {missing_percentage:.1f}% missing values requiring attention",
+                        "priority": "high" if missing_percentage > 20 else "medium",
+                        "type": "quality",
+                        "recommendations": [
+                            "Consider imputation strategies for missing values",
+                            "Analyze missing data patterns",
+                            "Evaluate impact on analysis",
+                        ],
+                    }
+                )
+
             # Add outlier insights
-            numerical_cols = df.select_dtypes(include=['number']).columns
+            numerical_cols = df.select_dtypes(include=["number"]).columns
             if len(numerical_cols) > 0:
                 outlier_cols = []
                 for col in numerical_cols[:3]:  # Check first 3 numerical columns
                     Q1 = df[col].quantile(0.25)
                     Q3 = df[col].quantile(0.75)
                     IQR = Q3 - Q1
-                    outliers = df[(df[col] < Q1 - 1.5 * IQR) | (df[col] > Q3 + 1.5 * IQR)]
+                    outliers = df[
+                        (df[col] < Q1 - 1.5 * IQR) | (df[col] > Q3 + 1.5 * IQR)
+                    ]
                     if len(outliers) > 0:
                         outlier_cols.append(col)
-                
+
                 if outlier_cols:
-                    priority_insights.append({
-                        "title": "Outlier Detection",
-                        "description": f"Outliers detected in columns: {', '.join(outlier_cols)}",
-                        "priority": "medium",
-                        "type": "pattern",
-                        "recommendations": [
-                            "Investigate outlier causes",
-                            "Consider outlier treatment methods",
-                            "Evaluate impact on statistical analysis"
-                        ]
-                    })
-            
+                    priority_insights.append(
+                        {
+                            "title": "Outlier Detection",
+                            "description": f"Outliers detected in columns: {', '.join(outlier_cols)}",
+                            "priority": "medium",
+                            "type": "pattern",
+                            "recommendations": [
+                                "Investigate outlier causes",
+                                "Consider outlier treatment methods",
+                                "Evaluate impact on statistical analysis",
+                            ],
+                        }
+                    )
+
             return priority_insights
-            
+
         except Exception as e:
-            return [{
-                "title": "Analysis Status",
-                "description": "Basic dashboard generated successfully",
-                "priority": "low",
-                "type": "info",
-                "recommendations": ["Review the generated visualizations"]
-            }]
-    
+            return [
+                {
+                    "title": "Analysis Status",
+                    "description": "Basic dashboard generated successfully",
+                    "priority": "low",
+                    "type": "info",
+                    "recommendations": ["Review the generated visualizations"],
+                }
+            ]
+
     def _get_customization_options(self, dashboard_type: str) -> Dict[str, Any]:
         """Get available customization options for dashboard type"""
-        
+
         base_options = {
             "color_scheme": ["blue", "green", "purple", "orange", "red"],
             "chart_size": ["small", "medium", "large"],
             "layout_density": ["compact", "comfortable", "spacious"],
-            "export_formats": ["html", "pdf", "png", "json"]
+            "export_formats": ["html", "pdf", "png", "json"],
         }
-        
+
         type_specific_options = {
             "executive_summary": {
                 "metric_cards": True,
                 "highlight_insights": True,
-                "summary_level": ["high", "medium", "detailed"]
+                "summary_level": ["high", "medium", "detailed"],
             },
             "data_quality": {
                 "quality_thresholds": True,
                 "detailed_reports": True,
-                "recommendations": True
+                "recommendations": True,
             },
             "exploratory": {
                 "interactive_filters": True,
                 "drill_down": True,
-                "statistical_tests": True
-            }
+                "statistical_tests": True,
+            },
         }
-        
-        return {
-            **base_options,
-            **type_specific_options.get(dashboard_type, {})
-        }
-    
-    async def generate_dashboard(self, df: pd.DataFrame, requirements: Dict[str, Any], 
-                               customizations: Dict[str, Any] = None) -> Dict[str, Any]:
+
+        return {**base_options, **type_specific_options.get(dashboard_type, {})}
+
+    async def generate_dashboard(
+        self,
+        df: pd.DataFrame,
+        requirements: Dict[str, Any],
+        customizations: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """Generate complete dashboard based on requirements"""
-        
+
         dashboard_type = requirements["type"]
         customizations = customizations or {}
-        
+
         # Generate all required charts
-        charts = await self._generate_dashboard_charts(df, requirements["suggested_charts"])
-        
+        charts = await self._generate_dashboard_charts(
+            df, requirements["suggested_charts"]
+        )
+
         # Process charts based on dashboard type
         processed_charts = self._process_charts_for_dashboard(charts, dashboard_type)
-        
+
         # Generate insights
-        insights = await self._generate_dashboard_insights(df, requirements["priority_insights"])
-        
+        insights = await self._generate_dashboard_insights(
+            df, requirements["priority_insights"]
+        )
+
         # Build dashboard sections
-        sections = self._build_dashboard_sections(df, processed_charts, insights, requirements)
-        
+        sections = self._build_dashboard_sections(
+            df, processed_charts, insights, requirements
+        )
+
         # Generate final HTML
-        html_content = self._render_dashboard_html(dashboard_type, sections, customizations, df)
-        
+        html_content = self._render_dashboard_html(
+            dashboard_type, sections, customizations, df
+        )
+
         dashboard = {
             "id": str(uuid.uuid4()),
             "type": dashboard_type,
@@ -1671,74 +1829,94 @@ class DashboardBuilder:
             "metadata": {
                 "generated_at": datetime.now().isoformat(),
                 "dataset_shape": df.shape,
-                "customizations": customizations
-            }
+                "customizations": customizations,
+            },
         }
-        
+
         # Save dashboard for future reference
         await self._save_dashboard(dashboard)
-        
+
         # Convert numpy types to Python native types for JSON serialization
         return convert_numpy_types(dashboard)
-    
-    async def _generate_dashboard_charts(self, df: pd.DataFrame, 
-                                       suggested_charts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+
+    async def _generate_dashboard_charts(
+        self, df: pd.DataFrame, suggested_charts: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
         """Generate all charts needed for the dashboard"""
-        
+
         charts = []
-        
+
         for suggestion in suggested_charts:
             try:
                 chart_type = suggestion["type"]
                 columns = suggestion.get("columns", [])
-                
+
                 if chart_type == "histogram" and len(columns) == 1:
-                    chart_data = self.chart_generator._create_distribution_charts(df, columns[0])
+                    chart_data = self.chart_generator._create_distribution_charts(
+                        df, columns[0]
+                    )
                     charts.extend(chart_data)
-                
+
                 elif chart_type == "bar" and len(columns) == 1:
-                    chart_data = self.chart_generator._create_categorical_charts(df, columns[0])
+                    chart_data = self.chart_generator._create_categorical_charts(
+                        df, columns[0]
+                    )
                     charts.extend(chart_data)
-                
+
                 elif chart_type == "heatmap":
-                    numerical_cols = df.select_dtypes(include=['number']).columns.tolist()
+                    numerical_cols = df.select_dtypes(
+                        include=["number"]
+                    ).columns.tolist()
                     if len(numerical_cols) > 1:
-                        chart_data = self.chart_generator._create_correlation_heatmap(df, numerical_cols[:6])
+                        chart_data = self.chart_generator._create_correlation_heatmap(
+                            df, numerical_cols[:6]
+                        )
                         charts.append(chart_data)
-                
+
                 elif chart_type == "scatter" and len(columns) == 2:
-                    chart_data = self.chart_generator._create_relationship_charts(df, columns, [])
+                    chart_data = self.chart_generator._create_relationship_charts(
+                        df, columns, []
+                    )
                     charts.extend(chart_data)
-                
+
                 elif chart_type == "missing_values":
                     if df.isnull().sum().sum() > 0:
-                        chart_data = self.chart_generator._create_missing_values_chart(df)
+                        chart_data = self.chart_generator._create_missing_values_chart(
+                            df
+                        )
                         charts.append(chart_data)
-                
+
             except Exception as e:
                 print(f"Error generating chart {chart_type}: {e}")
                 continue
-        
+
         return charts
-    
-    def _process_charts_for_dashboard(self, charts: List[Dict[str, Any]], 
-                                    dashboard_type: str) -> List[Dict[str, Any]]:
+
+    def _process_charts_for_dashboard(
+        self, charts: List[Dict[str, Any]], dashboard_type: str
+    ) -> List[Dict[str, Any]]:
         """Process and prioritize charts for specific dashboard type"""
-        
+
         # Add dashboard-specific metadata
         for chart in charts:
-            chart["dashboard_priority"] = self._calculate_chart_priority(chart, dashboard_type)
-            chart["dashboard_section"] = self._assign_chart_section(chart, dashboard_type)
+            chart["dashboard_priority"] = self._calculate_chart_priority(
+                chart, dashboard_type
+            )
+            chart["dashboard_section"] = self._assign_chart_section(
+                chart, dashboard_type
+            )
             chart["display_size"] = self._determine_chart_size(chart, dashboard_type)
-        
+
         # Sort by priority
         charts.sort(key=lambda x: x.get("dashboard_priority", 0), reverse=True)
-        
+
         return charts
-    
-    def _calculate_chart_priority(self, chart: Dict[str, Any], dashboard_type: str) -> int:
+
+    def _calculate_chart_priority(
+        self, chart: Dict[str, Any], dashboard_type: str
+    ) -> int:
         """Calculate chart priority for dashboard type"""
-        
+
         priority_map = {
             "executive_summary": {
                 "correlation_heatmap": 90,
@@ -1746,7 +1924,7 @@ class DashboardBuilder:
                 "histogram": 70,
                 "bar": 75,
                 "scatter": 60,
-                "heatmap": 90
+                "heatmap": 90,
             },
             "data_quality": {
                 "missing": 95,
@@ -1754,7 +1932,7 @@ class DashboardBuilder:
                 "box": 85,
                 "correlation_heatmap": 70,
                 "bar": 60,
-                "heatmap": 85
+                "heatmap": 85,
             },
             "exploratory": {
                 "histogram": 90,
@@ -1762,20 +1940,20 @@ class DashboardBuilder:
                 "scatter": 85,
                 "box": 80,
                 "bar": 75,
-                "heatmap": 95
-            }
+                "heatmap": 95,
+            },
         }
-        
+
         chart_type = chart.get("type", "")
         type_priorities = priority_map.get(dashboard_type, {})
-        
+
         return type_priorities.get(chart_type, 50)
-    
+
     def _assign_chart_section(self, chart: Dict[str, Any], dashboard_type: str) -> str:
         """Assign chart to appropriate dashboard section"""
-        
+
         chart_type = chart.get("type", "")
-        
+
         section_map = {
             "executive_summary": {
                 "heatmap": "relationships",
@@ -1783,7 +1961,7 @@ class DashboardBuilder:
                 "missing": "quality",
                 "histogram": "distributions",
                 "bar": "distributions",
-                "scatter": "relationships"
+                "scatter": "relationships",
             },
             "data_quality": {
                 "missing": "completeness",
@@ -1791,7 +1969,7 @@ class DashboardBuilder:
                 "box": "outliers",
                 "heatmap": "consistency",
                 "correlation_heatmap": "consistency",
-                "bar": "distributions"
+                "bar": "distributions",
             },
             "exploratory": {
                 "histogram": "distributions",
@@ -1799,56 +1977,64 @@ class DashboardBuilder:
                 "correlation_heatmap": "relationships",
                 "scatter": "relationships",
                 "box": "distributions",
-                "bar": "categorical"
-            }
+                "bar": "categorical",
+            },
         }
-        
+
         type_sections = section_map.get(dashboard_type, {})
         return type_sections.get(chart_type, "general")
-    
+
     def _determine_chart_size(self, chart: Dict[str, Any], dashboard_type: str) -> str:
         """Determine appropriate chart size for dashboard"""
-        
+
         priority = chart.get("dashboard_priority", 50)
-        
+
         if priority > 85:
             return "large"
         elif priority > 70:
             return "medium"
         else:
             return "small"
-    
-    async def _generate_dashboard_insights(self, df: pd.DataFrame, 
-                                         priority_insights: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+
+    async def _generate_dashboard_insights(
+        self, df: pd.DataFrame, priority_insights: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
         """Generate comprehensive insights for dashboard"""
-        
+
         insights = priority_insights.copy()
-        
+
         # Add automated insights
         try:
             ai_insights = await self.ai_agent.generate_insights(df)
-            
+
             if ai_insights and "key_findings" in ai_insights:
                 for finding in ai_insights["key_findings"][:3]:
-                    insights.append({
-                        "title": "AI-Generated Insight",
-                        "description": finding,
-                        "priority": "medium",
-                        "type": "ai_generated",
-                        "recommendations": []
-                    })
-        
+                    insights.append(
+                        {
+                            "title": "AI-Generated Insight",
+                            "description": finding,
+                            "priority": "medium",
+                            "type": "ai_generated",
+                            "recommendations": [],
+                        }
+                    )
+
         except Exception as e:
             print(f"Error generating AI insights: {e}")
-        
+
         return insights
-    
-    def _build_dashboard_sections(self, df: pd.DataFrame, charts: List[Dict[str, Any]], 
-                                insights: List[Dict[str, Any]], requirements: Dict[str, Any]) -> List[Dict[str, Any]]:
+
+    def _build_dashboard_sections(
+        self,
+        df: pd.DataFrame,
+        charts: List[Dict[str, Any]],
+        insights: List[Dict[str, Any]],
+        requirements: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
         """Build organized dashboard sections"""
-        
+
         dashboard_type = requirements["type"]
-        
+
         # Group charts by section
         sections_dict = {}
         for chart in charts:
@@ -1856,7 +2042,7 @@ class DashboardBuilder:
             if section not in sections_dict:
                 sections_dict[section] = []
             sections_dict[section].append(chart)
-        
+
         # Build sections based on dashboard type
         if dashboard_type == "executive_summary":
             return self._build_executive_sections(df, sections_dict, insights)
@@ -1866,241 +2052,300 @@ class DashboardBuilder:
             return self._build_exploratory_sections(df, sections_dict, insights)
         else:
             return self._build_default_sections(df, sections_dict, insights)
-    
-    def _build_executive_sections(self, df: pd.DataFrame, sections_dict: Dict[str, List], 
-                                insights: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+
+    def _build_executive_sections(
+        self,
+        df: pd.DataFrame,
+        sections_dict: Dict[str, List],
+        insights: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
         """Build sections for executive summary dashboard"""
-        
+
         sections = []
-        
+
         # Key metrics
         key_metrics = self._generate_summary_metrics(df)
-        
+
         # Priority charts (limit to top 4 for executive view)
         priority_charts = []
         if "relationships" in sections_dict:
             priority_charts.extend(sections_dict["relationships"][:2])
         if "distributions" in sections_dict:
             priority_charts.extend(sections_dict["distributions"][:2])
-        
+
         # High priority insights
-        high_priority_insights = [i for i in insights if i.get("priority") == "high"][:3]
-        
+        high_priority_insights = [i for i in insights if i.get("priority") == "high"][
+            :3
+        ]
+
         return {
             "key_metrics": list(key_metrics.values()),
             "priority_charts": priority_charts,
-            "ai_insights": high_priority_insights
+            "ai_insights": high_priority_insights,
         }
-    
-    def _build_quality_sections(self, df: pd.DataFrame, sections_dict: Dict[str, List], 
-                              insights: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+
+    def _build_quality_sections(
+        self,
+        df: pd.DataFrame,
+        sections_dict: Dict[str, List],
+        insights: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
         """Build sections for data quality dashboard"""
-        
+
         # Calculate quality score
         quality_score = self._calculate_quality_score(df)
-        
+
         # Build quality sections
         quality_sections = []
-        
+
         # Completeness section
         missing_data = df.isnull().sum()
         completeness_metrics = []
         for col, missing_count in missing_data.items():
             if missing_count > 0:
                 missing_perc = (missing_count / len(df)) * 100
-                status = "error" if missing_perc > 20 else "warning" if missing_perc > 5 else "good"
-                completeness_metrics.append({
-                    "name": f"{col} Missing",
-                    "value": f"{missing_perc:.1f}%",
-                    "status": status
-                })
-        
+                status = (
+                    "error"
+                    if missing_perc > 20
+                    else "warning" if missing_perc > 5 else "good"
+                )
+                completeness_metrics.append(
+                    {
+                        "name": f"{col} Missing",
+                        "value": f"{missing_perc:.1f}%",
+                        "status": status,
+                    }
+                )
+
         if completeness_metrics:
             completeness_section = {
                 "id": "completeness",
                 "title": "Data Completeness",
-                "metrics": completeness_metrics
+                "metrics": completeness_metrics,
             }
-            
+
             # Add missing values chart if available
             if "completeness" in sections_dict:
                 completeness_section["chart"] = sections_dict["completeness"][0]
-            
+
             quality_sections.append(completeness_section)
-        
+
         # Distribution quality section
         if "distributions" in sections_dict:
             distribution_metrics = []
-            numerical_cols = df.select_dtypes(include=['number']).columns
+            numerical_cols = df.select_dtypes(include=["number"]).columns
             for col in numerical_cols[:3]:
                 std_val = df[col].std()
                 status = "good" if not np.isnan(std_val) and std_val > 0 else "warning"
-                distribution_metrics.append({
-                    "name": f"{col} Variance",
-                    "value": f"{std_val:.2f}" if not np.isnan(std_val) else "N/A",
-                    "status": status
-                })
-            
+                distribution_metrics.append(
+                    {
+                        "name": f"{col} Variance",
+                        "value": f"{std_val:.2f}" if not np.isnan(std_val) else "N/A",
+                        "status": status,
+                    }
+                )
+
             if distribution_metrics:
-                quality_sections.append({
-                    "id": "distributions",
-                    "title": "Distribution Quality",
-                    "metrics": distribution_metrics,
-                    "chart": sections_dict["distributions"][0] if sections_dict["distributions"] else None
-                })
-        
+                quality_sections.append(
+                    {
+                        "id": "distributions",
+                        "title": "Distribution Quality",
+                        "metrics": distribution_metrics,
+                        "chart": (
+                            sections_dict["distributions"][0]
+                            if sections_dict["distributions"]
+                            else None
+                        ),
+                    }
+                )
+
         return {
             "quality_score": int(quality_score["overall_score"]),
-            "quality_sections": quality_sections
+            "quality_sections": quality_sections,
         }
-    
-    def _build_exploratory_sections(self, df: pd.DataFrame, sections_dict: Dict[str, List], 
-                                  insights: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+
+    def _build_exploratory_sections(
+        self,
+        df: pd.DataFrame,
+        sections_dict: Dict[str, List],
+        insights: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
         """Build sections for exploratory analysis dashboard"""
-        
+
         analysis_sections = []
-        
+
         # Distributions section
         if "distributions" in sections_dict:
-            analysis_sections.append({
-                "id": "distributions",
-                "title": "Variable Distributions",
-                "description": "Understanding the distribution patterns of your data variables",
-                "charts": sections_dict["distributions"][:4],
-                "layout": "grid",
-                "insights": [f"Analyzed {len(sections_dict['distributions'])} distribution patterns"]
-            })
-        
+            analysis_sections.append(
+                {
+                    "id": "distributions",
+                    "title": "Variable Distributions",
+                    "description": "Understanding the distribution patterns of your data variables",
+                    "charts": sections_dict["distributions"][:4],
+                    "layout": "grid",
+                    "insights": [
+                        f"Analyzed {len(sections_dict['distributions'])} distribution patterns"
+                    ],
+                }
+            )
+
         # Relationships section
         if "relationships" in sections_dict:
-            analysis_sections.append({
-                "id": "relationships",
-                "title": "Variable Relationships",
-                "description": "Exploring correlations and relationships between variables",
-                "charts": sections_dict["relationships"][:3],
-                "layout": "mixed",
-                "insights": [f"Found {len(sections_dict['relationships'])} key relationships"]
-            })
-        
+            analysis_sections.append(
+                {
+                    "id": "relationships",
+                    "title": "Variable Relationships",
+                    "description": "Exploring correlations and relationships between variables",
+                    "charts": sections_dict["relationships"][:3],
+                    "layout": "mixed",
+                    "insights": [
+                        f"Found {len(sections_dict['relationships'])} key relationships"
+                    ],
+                }
+            )
+
         # Categorical section
         if "categorical" in sections_dict:
-            analysis_sections.append({
-                "id": "categorical",
-                "title": "Categorical Analysis",
-                "description": "Analyzing categorical variables and their distributions",
-                "charts": sections_dict["categorical"][:3],
-                "layout": "row",
-                "insights": [f"Examined {len(sections_dict['categorical'])} categorical variables"]
-            })
-        
+            analysis_sections.append(
+                {
+                    "id": "categorical",
+                    "title": "Categorical Analysis",
+                    "description": "Analyzing categorical variables and their distributions",
+                    "charts": sections_dict["categorical"][:3],
+                    "layout": "row",
+                    "insights": [
+                        f"Examined {len(sections_dict['categorical'])} categorical variables"
+                    ],
+                }
+            )
+
         return {
             "row_count": f"{df.shape[0]:,}",
             "column_count": str(df.shape[1]),
             "missing_percentage": f"{(df.isnull().sum().sum() / df.size * 100):.1f}",
-            "analysis_sections": analysis_sections
+            "analysis_sections": analysis_sections,
         }
-    
-    def _build_default_sections(self, df: pd.DataFrame, sections_dict: Dict[str, List], 
-                              insights: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+
+    def _build_default_sections(
+        self,
+        df: pd.DataFrame,
+        sections_dict: Dict[str, List],
+        insights: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
         """Build default sections for general dashboard"""
-        
+
         return self._build_exploratory_sections(df, sections_dict, insights)
-    
+
     def _generate_summary_metrics(self, df: pd.DataFrame) -> Dict[str, Any]:
         """Generate summary metrics for executive dashboard"""
-        
-        numerical_cols = df.select_dtypes(include=['number']).columns
-        categorical_cols = df.select_dtypes(include=['object']).columns
-        
+
+        numerical_cols = df.select_dtypes(include=["number"]).columns
+        categorical_cols = df.select_dtypes(include=["object"]).columns
+
         metrics = {
             "total_records": {
                 "title": "Total Records",
                 "value": f"{df.shape[0]:,}",
-                "description": "Number of data points in the dataset"
+                "description": "Number of data points in the dataset",
             },
             "data_completeness": {
                 "title": "Data Completeness",
                 "value": f"{((df.size - df.isnull().sum().sum()) / df.size * 100):.1f}%",
-                "description": "Percentage of non-missing values"
+                "description": "Percentage of non-missing values",
             },
             "numerical_features": {
                 "title": "Numerical Features",
                 "value": str(len(numerical_cols)),
-                "description": "Number of quantitative variables"
+                "description": "Number of quantitative variables",
             },
             "categorical_features": {
-                "title": "Categorical Features", 
+                "title": "Categorical Features",
                 "value": str(len(categorical_cols)),
-                "description": "Number of qualitative variables"
-            }
+                "description": "Number of qualitative variables",
+            },
         }
-        
+
         return metrics
-    
+
     def _calculate_quality_score(self, df: pd.DataFrame) -> Dict[str, Any]:
         """Calculate comprehensive data quality score"""
-        
+
         total_score = 100
         details = []
-        
+
         # Missing values penalty
         missing_percentage = (df.isnull().sum().sum() / df.size) * 100
         if missing_percentage > 0:
             penalty = min(missing_percentage * 2, 30)
             total_score -= penalty
-            details.append({
-                "factor": "Missing Values",
-                "score": 100 - penalty,
-                "description": f"{missing_percentage:.1f}% missing data"
-            })
-        
+            details.append(
+                {
+                    "factor": "Missing Values",
+                    "score": 100 - penalty,
+                    "description": f"{missing_percentage:.1f}% missing data",
+                }
+            )
+
         # Duplicate rows penalty
         duplicate_percentage = (df.duplicated().sum() / len(df)) * 100
         if duplicate_percentage > 0:
             penalty = min(duplicate_percentage * 3, 20)
             total_score -= penalty
-            details.append({
-                "factor": "Duplicates",
-                "score": 100 - penalty,
-                "description": f"{duplicate_percentage:.1f}% duplicate rows"
-            })
-        
+            details.append(
+                {
+                    "factor": "Duplicates",
+                    "score": 100 - penalty,
+                    "description": f"{duplicate_percentage:.1f}% duplicate rows",
+                }
+            )
+
         return {
             "overall_score": max(total_score, 0),
             "details": details,
-            "status": "excellent" if total_score >= 90 else "good" if total_score >= 70 else "needs_improvement"
+            "status": (
+                "excellent"
+                if total_score >= 90
+                else "good" if total_score >= 70 else "needs_improvement"
+            ),
         }
-    
-    def _render_dashboard_html(self, dashboard_type: str, sections: Dict[str, Any], 
-                              customizations: Dict[str, Any], df: pd.DataFrame) -> str:
+
+    def _render_dashboard_html(
+        self,
+        dashboard_type: str,
+        sections: Dict[str, Any],
+        customizations: Dict[str, Any],
+        df: pd.DataFrame,
+    ) -> str:
         """Render final HTML dashboard"""
-        
-        template_str = self.dashboard_templates.get(dashboard_type, self.dashboard_templates["exploratory"])
-        
+
+        template_str = self.dashboard_templates.get(
+            dashboard_type, self.dashboard_templates["exploratory"]
+        )
+
         # Create Jinja2 environment
         env = Environment(loader=BaseLoader())
         template = env.from_string(template_str)
-        
+
         # Prepare template context
         context = {
             "dataset_name": "Dataset Analysis",
             "date": datetime.now().strftime("%B %d, %Y at %I:%M %p"),
-            **sections
+            **sections,
         }
-        
+
         # Render HTML
         html_content = template.render(**context)
-        
+
         return html_content
-    
+
     async def _save_dashboard(self, dashboard: Dict[str, Any]) -> None:
         """Save dashboard to storage"""
         self.dashboard_storage[dashboard["id"]] = dashboard
-    
+
     async def get_dashboard(self, dashboard_id: str) -> Optional[Dict[str, Any]]:
         """Retrieve saved dashboard"""
         return self.dashboard_storage.get(dashboard_id)
-    
+
     async def list_dashboards(self) -> List[Dict[str, Any]]:
         """List all saved dashboards"""
         return [
@@ -2108,29 +2353,31 @@ class DashboardBuilder:
                 "id": dashboard["id"],
                 "type": dashboard["type"],
                 "generated_at": dashboard["metadata"]["generated_at"],
-                "dataset_shape": dashboard["metadata"]["dataset_shape"]
+                "dataset_shape": dashboard["metadata"]["dataset_shape"],
             }
             for dashboard in self.dashboard_storage.values()
         ]
-    
-    async def export_dashboard(self, dashboard_id: str, format: str = "html") -> Dict[str, Any]:
+
+    async def export_dashboard(
+        self, dashboard_id: str, format: str = "html"
+    ) -> Dict[str, Any]:
         """Export dashboard in specified format"""
-        
+
         dashboard = await self.get_dashboard(dashboard_id)
         if not dashboard:
             raise ValueError(f"Dashboard {dashboard_id} not found")
-        
+
         if format == "html":
             return {
                 "format": "html",
                 "content": dashboard["html"],
-                "filename": f"dashboard_{dashboard_id}.html"
+                "filename": f"dashboard_{dashboard_id}.html",
             }
         elif format == "json":
             return {
                 "format": "json",
                 "content": json.dumps(dashboard, indent=2),
-                "filename": f"dashboard_{dashboard_id}.json"
+                "filename": f"dashboard_{dashboard_id}.json",
             }
         else:
             raise ValueError(f"Unsupported export format: {format}")
