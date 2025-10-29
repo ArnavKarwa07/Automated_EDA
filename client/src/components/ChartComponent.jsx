@@ -20,7 +20,9 @@ const ChartComponent = ({ chart, className = "" }) => {
     );
   }
 
-  const plotData = JSON.parse(chart.data);
+  // Handle both string and object data formats
+  const plotData =
+    typeof chart.data === "string" ? JSON.parse(chart.data) : chart.data;
 
   const handleDownload = () => {
     // Trigger download of the chart as PNG

@@ -6,15 +6,48 @@ Replaces template-based approach with intelligent code generation.
 import pandas as pd
 import numpy as np
 import json
-from typing import Dict, List, Any, Optional, Literal, TypedDict
+from typing import Dict, List, Any, Optional, Literal, TypedDict, Annotated
 from datetime import datetime
 import logging
 import uuid
+import operator
 
 from langgraph.graph import StateGraph, END
 from .langgraph_agents import LangGraphAgentOrchestrator
 from .dashboard_tools import DashboardToolFactory
 from .csv_to_json import CSVToJSONConverter
+from .llm_insights_engine import LLMInsightsEngine, generate_insights_summary
+
+# Optional LLM integration: try to import LangChain LLM wrappers (OpenAI/Groq). If unavailable,
+# the code generator fallback will be used.
+import os
+try:
+    # Try multiple import paths for different langchain versions
+    try:
+        from langchain_openai import ChatOpenAI as LCOpenAI  # type: ignore
+        _USE_CHAT_MODEL = True
+    except Exception:
+        try:
+            from langchain.chat_models import ChatOpenAI as LCOpenAI  # type: ignore
+            _USE_CHAT_MODEL = True
+        except Exception:
+            try:
+                from langchain import OpenAI as LCOpenAI  # type: ignore
+                _USE_CHAT_MODEL = False
+            except Exception:
+                from langchain.llms import OpenAI as LCOpenAI  # type: ignore
+                _USE_CHAT_MODEL = False
+except Exception:
+    LCOpenAI = None  # type: ignore
+    _USE_CHAT_MODEL = False
+
+# Try to import Groq chat model as well
+LCGroq = None
+try:
+    from langchain_groq import ChatGroq as _ChatGroq  # type: ignore
+    LCGroq = _ChatGroq
+except Exception:
+    LCGroq = None
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +61,19 @@ class DashboardGenerationState(TypedDict, total=False):
     user_context: str
     target_audience: str
     layout_requirements: Dict[str, Any]
-    chart_specifications: List[Dict[str, Any]]
+    data_analysis: Dict[str, Any]
+    chart_specifications: Annotated[List[Dict[str, Any]], operator.add]
     styling_preferences: Dict[str, Any]
     generated_html: str
     generated_css: str
     generated_js: str
-    insights: List[str]
-    error_messages: List[str]
+    generated_code: str
+    generated_code_type: str
+    insights: Annotated[List[str], operator.add]
+    llm_insights: Dict[str, Any]  # NEW: Structured LLM-generated insights
+    error_messages: Annotated[List[str], operator.add]
+    verification_issues: Annotated[List[str], operator.add]
+    verification_report: Dict[str, Any]
 
 
 class CodeGenerationAgent:
@@ -95,6 +134,11 @@ class CodeGenerationAgent:
         for i, section in enumerate(sections):
             container_html.append(self._generate_section_html(section, i))
         
+        # Ensure an insights panel exists at the bottom if layout did not include one
+        has_insights = any((sec.get("id") == "insights_panel" or sec.get("type") == "insights_panel") for sec in sections)
+        if not has_insights:
+            container_html.append(self._generate_insights_section("insights_panel", "", "height-compact"))
+        
         container_html.extend([
             '</div>',  # Close dashboard-grid
             self._generate_footer_section(),
@@ -130,6 +174,10 @@ class CodeGenerationAgent:
         section_id = section.get("id", f"section_{index}")
         span_style = self._get_grid_span_style(section.get("span", {}))
         height_class = f"height-{section.get('height', 'standard')}"
+        
+        # If a section is explicitly named insights_panel by id, treat it as insights regardless of type
+        if section_id == "insights_panel":
+            return self._generate_insights_section(section_id, span_style, height_class)
         
         if section_type == "kpi_cards":
             return self._generate_kpi_section(section_id, span_style, height_class)
@@ -541,10 +589,21 @@ class CodeGenerationAgent:
     def generate_javascript_code(self, chart_configs: List[Dict[str, Any]], insights: List[str], json_data: Dict[str, Any]) -> str:
         """Generate JavaScript code for dashboard functionality"""
         
+        # Custom JSON encoder to handle NumPy types
+        class NumpyEncoder(json.JSONEncoder):
+            def default(self, obj):
+                if isinstance(obj, np.integer):
+                    return int(obj)
+                elif isinstance(obj, np.floating):
+                    return float(obj)
+                elif isinstance(obj, np.ndarray):
+                    return obj.tolist()
+                return super().default(obj)
+        
         js_code = f"""
 // Dashboard Data and Configuration
-const dashboardData = {json.dumps(json_data, indent=2)};
-const chartConfigs = {json.dumps(chart_configs, indent=2)};
+const dashboardData = {json.dumps(json_data, indent=2, cls=NumpyEncoder)};
+const chartConfigs = {json.dumps(chart_configs, indent=2, cls=NumpyEncoder)};
 const insights = {json.dumps(insights, indent=2)};
 
 // Dashboard Initialization
@@ -613,10 +672,44 @@ function createKPICard(kpi) {{
 
 // Chart Rendering
 function renderCharts() {{
+    // First try to match by exact IDs
+    const renderedElements = new Set();
+    
     chartConfigs.forEach((config, index) => {{
-        const chartElement = document.getElementById(config.id || `chart_${{index}}`);
+        let chartElement = null;
+        
+        // Try exact ID match first
+        if (config.id) {{
+            chartElement = document.getElementById(config.id);
+        }}
+        
+        // If no match and ID doesn't exist, try backup ID patterns
+        if (!chartElement && config.id) {{
+            const fallbackIds = [config.id, `chart_${{index}}`, `section_${{index}}`];
+            for (const id of fallbackIds) {{
+                const el = document.getElementById(id);
+                if (el && !renderedElements.has(el)) {{
+                    chartElement = el;
+                    break;
+                }}
+            }}
+        }}
+        
         if (chartElement) {{
             renderChart(chartElement, config);
+            renderedElements.add(chartElement);
+        }} else {{
+            console.warn(`No element found for chart:`, config);
+        }}
+    }});
+    
+    // For any remaining empty chart containers, try sequential matching
+    const allChartContainers = document.querySelectorAll('.chart-container');
+    let configIndex = 0;
+    allChartContainers.forEach(container => {{
+        if (!renderedElements.has(container) && container.children.length === 0 && configIndex < chartConfigs.length) {{
+            renderChart(container, chartConfigs[configIndex]);
+            configIndex++;
         }}
     }});
 }}
@@ -636,6 +729,10 @@ function renderChart(element, config) {{
             renderHeatmap(element, config);
         }} else if (config.type === 'line_chart') {{
             renderLineChart(element, config);
+        }} else if (config.type === 'gauge_chart') {{
+            renderGaugeChart(element, config);
+        }} else if (config.type === 'kpi_card') {{
+            renderKPICard(element, config);
         }} else {{
             renderDefaultChart(element, config);
         }}
@@ -646,18 +743,24 @@ function renderChart(element, config) {{
 }}
 
 function renderHistogram(element, config) {{
-    const data = extractColumnData(config.columns?.[0] || Object.keys(dashboardData.data?.by_column || {{}})[0]);
+    // Use provided data if available, otherwise extract from dashboardData
+    let data;
+    if (config.config?.x) {{
+        data = config.config.x;
+    }} else {{
+        data = extractColumnData(config.columns?.[0] || Object.keys(dashboardData.data?.by_column || {{}})[0]);
+    }}
     
     const trace = {{
         x: data,
         type: 'histogram',
-        name: config.title || 'Distribution',
-        marker: {{ color: config.color || '#3b82f6' }},
-        nbinsx: 30
+        name: config.config?.title || config.title || 'Distribution',
+        marker: {{ color: config.config?.color || config.color || '#3b82f6' }},
+        nbinsx: config.config?.bins || 30
     }};
     
     const layout = {{
-        title: config.title || 'Distribution Analysis',
+        title: config.config?.title || config.title || 'Distribution Analysis',
         xaxis: {{ title: config.columns?.[0] || 'Value' }},
         yaxis: {{ title: 'Frequency' }},
         margin: {{ t: 40, r: 30, b: 40, l: 60 }},
@@ -669,24 +772,31 @@ function renderHistogram(element, config) {{
 }}
 
 function renderScatter(element, config) {{
-    const xData = extractColumnData(config.columns?.[0]);
-    const yData = extractColumnData(config.columns?.[1]);
+    // Use provided data if available
+    let xData, yData;
+    if (config.config?.x && config.config?.y) {{
+        xData = config.config.x;
+        yData = config.config.y;
+    }} else {{
+        xData = extractColumnData(config.columns?.[0]);
+        yData = extractColumnData(config.columns?.[1]);
+    }}
     
     const trace = {{
         x: xData,
         y: yData,
         mode: 'markers',
         type: 'scatter',
-        name: config.title || 'Scatter Plot',
+        name: config.config?.title || config.title || 'Scatter Plot',
         marker: {{ 
-            color: config.color || '#3b82f6',
-            size: 8,
+            color: config.config?.color || config.color || '#3b82f6',
+            size: config.config?.size || 8,
             opacity: 0.7
         }}
     }};
     
     const layout = {{
-        title: config.title || 'Scatter Plot Analysis',
+        title: config.config?.title || config.title || 'Scatter Plot Analysis',
         xaxis: {{ title: config.columns?.[0] || 'X' }},
         yaxis: {{ title: config.columns?.[1] || 'Y' }},
         margin: {{ t: 40, r: 30, b: 40, l: 60 }},
@@ -698,19 +808,28 @@ function renderScatter(element, config) {{
 }}
 
 function renderBarChart(element, config) {{
-    const data = extractColumnData(config.columns?.[0]);
-    const valueCounts = getValueCounts(data);
+    // Use provided data if available
+    let xData, yData;
+    if (config.config?.x && config.config?.y) {{
+        xData = config.config.x;
+        yData = config.config.y;
+    }} else {{
+        const data = extractColumnData(config.columns?.[0]);
+        const valueCounts = getValueCounts(data);
+        xData = Object.keys(valueCounts);
+        yData = Object.values(valueCounts);
+    }}
     
     const trace = {{
-        x: Object.keys(valueCounts),
-        y: Object.values(valueCounts),
+        x: xData,
+        y: yData,
         type: 'bar',
-        name: config.title || 'Bar Chart',
-        marker: {{ color: config.color || '#3b82f6' }}
+        name: config.config?.title || config.title || 'Bar Chart',
+        marker: {{ color: config.config?.color || config.color || '#3b82f6' }}
     }};
     
     const layout = {{
-        title: config.title || 'Bar Chart Analysis',
+        title: config.config?.title || config.title || 'Bar Chart Analysis',
         xaxis: {{ title: config.columns?.[0] || 'Category' }},
         yaxis: {{ title: 'Count' }},
         margin: {{ t: 40, r: 30, b: 40, l: 60 }},
@@ -746,21 +865,28 @@ function renderHeatmap(element, config) {{
 }}
 
 function renderLineChart(element, config) {{
-    const yData = extractColumnData(config.columns?.[0]);
-    const xData = Array.from({{length: yData.length}}, (_, i) => i);
+    // Use provided data if available
+    let xData, yData;
+    if (config.config?.x && config.config?.y) {{
+        xData = config.config.x;
+        yData = config.config.y;
+    }} else {{
+        yData = extractColumnData(config.columns?.[0]);
+        xData = Array.from({{length: yData.length}}, (_, i) => i);
+    }}
     
     const trace = {{
         x: xData,
         y: yData,
         type: 'scatter',
         mode: 'lines+markers',
-        name: config.title || 'Trend',
-        line: {{ color: config.color || '#3b82f6', width: 3 }},
+        name: config.config?.title || config.title || 'Trend',
+        line: {{ color: config.config?.color || config.color || '#3b82f6', width: 3 }},
         marker: {{ size: 6 }}
     }};
     
     const layout = {{
-        title: config.title || 'Trend Analysis',
+        title: config.config?.title || config.title || 'Trend Analysis',
         xaxis: {{ title: 'Index' }},
         yaxis: {{ title: config.columns?.[0] || 'Value' }},
         margin: {{ t: 40, r: 30, b: 40, l: 60 }},
@@ -769,6 +895,69 @@ function renderLineChart(element, config) {{
     }};
     
     Plotly.newPlot(element, [trace], layout, {{responsive: true}});
+}}
+
+function renderGaugeChart(element, config) {{
+    // Gauge chart using Plotly indicator
+    const value = config.config?.value || 0;
+    const maxValue = config.config?.max_value || 100;
+    const title = config.config?.title || config.title || 'Performance';
+    
+    const trace = {{
+        type: 'indicator',
+        mode: 'gauge+number',
+        value: value,
+        title: {{ text: title }},
+        gauge: {{
+            axis: {{ range: [0, maxValue] }},
+            bar: {{ color: config.config?.color || '#059669' }},
+            steps: config.config?.thresholds ? [
+                {{ range: [0, config.config.thresholds[0]], color: '#dc2626' }},
+                {{ range: [config.config.thresholds[0], config.config.thresholds[1]], color: '#d97706' }},
+                {{ range: [config.config.thresholds[1], maxValue], color: '#059669' }}
+            ] : [],
+            threshold: {{
+                line: {{ color: '#1e40af', width: 4 }},
+                thickness: 0.75,
+                value: value
+            }}
+        }}
+    }};
+    
+    const layout = {{
+        margin: {{ t: 40, r: 30, b: 40, l: 30 }},
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        font: {{ color: '#374151' }}
+    }};
+    
+    Plotly.newPlot(element, [trace], layout, {{responsive: true}});
+}}
+
+function renderKPICard(element, config) {{
+    // KPI card HTML rendering
+    const value = config.config?.value || 0;
+    const title = config.config?.title || 'KPI';
+    const trend = config.config?.trend || 'neutral';
+    const trendPercent = config.config?.trend_percent || 0;
+    const color = config.config?.color || '#3b82f6';
+    
+    const trendIcon = trend === 'up' ? '↗️' : trend === 'down' ? '↘️' : '→';
+    const trendColor = trend === 'up' ? '#10b981' : trend === 'down' ? '#ef4444' : '#6b7280';
+    
+    element.innerHTML = `
+        <div class="kpi-card-content" style="padding: 20px; text-align: center;">
+            <div class="kpi-value" style="font-size: 32px; font-weight: bold; color: ${{color}};">
+                ${{formatNumber(value)}}
+            </div>
+            <div class="kpi-label" style="font-size: 14px; color: #6b7280; margin-top: 8px;">
+                ${{title}}
+            </div>
+            <div class="kpi-trend" style="font-size: 12px; color: ${{trendColor}}; margin-top: 8px;">
+                ${{trendIcon}} ${{trendPercent}}%
+            </div>
+        </div>
+    `;
 }}
 
 function renderDefaultChart(element, config) {{
@@ -975,22 +1164,72 @@ class LangGraphDashboardBuilder:
         self.agent_orchestrator = LangGraphAgentOrchestrator()
         self.code_generator = CodeGenerationAgent()
         self.csv_converter = CSVToJSONConverter()
+        
+        # Initialize LLM Insights Engine
+        try:
+            self.insights_engine = LLMInsightsEngine()
+            self.use_llm_insights = True
+        except Exception as e:
+            print(f"Warning: LLM Insights Engine not available: {e}")
+            self.insights_engine = None
+            self.use_llm_insights = False
+        
         self.dashboard_graph = self._create_dashboard_workflow()
     
+    def _wrap_node(self, fn, node_name: str):
+        """Wrap a node function to ensure it always returns at least one valid state update.
+
+        - Catches exceptions and reports them via error_messages
+        - Ensures a non-empty update for LangGraph (adds a minimal 'insights' message if needed)
+        - Logs returned keys for easier debugging
+        """
+        allowed_keys = set(DashboardGenerationState.__annotations__.keys())
+
+        def wrapper(state: DashboardGenerationState) -> DashboardGenerationState:
+            try:
+                update = fn(state)
+                if update is None:
+                    update = {}
+                if not isinstance(update, dict):
+                    # If a non-dict was returned, convert to an error update
+                    logger.warning(f"Node {node_name} returned non-dict update: {type(update)}")
+                    update = {}
+            except Exception as e:
+                logger.exception(f"Node {node_name} raised an exception: {e}")
+                return {"error_messages": [f"{node_name} failed: {str(e)}"]}
+
+            # If update doesn't include any allowed keys, add a minimal insights update to satisfy LangGraph
+            if not any(k in allowed_keys for k in update.keys()):
+                logger.warning(f"Node {node_name} produced empty or invalid update; injecting minimal fallback update")
+                update = {**({} if isinstance(update, dict) else {}),
+                          "insights": [f"Node '{node_name}' produced no updates; continuing workflow."]}
+
+            try:
+                logger.debug(f"Node {node_name} update keys: {list(update.keys())}")
+            except Exception:
+                # Avoid any logging-related errors from unusual types
+                pass
+
+            return update  # type: ignore
+
+        return wrapper
+
     def _create_dashboard_workflow(self) -> StateGraph:
         """Create the complete dashboard generation workflow"""
         graph = StateGraph(DashboardGenerationState)
         
         # Add workflow nodes
-        graph.add_node("initialize_session", self._initialize_session)
-        graph.add_node("convert_data_to_json", self._convert_data_to_json)
-        graph.add_node("analyze_dashboard_requirements", self._analyze_requirements)
-        graph.add_node("generate_layout_structure", self._generate_layout)
-        graph.add_node("create_chart_specifications", self._create_charts)
-        graph.add_node("generate_insights", self._generate_insights)
-        graph.add_node("generate_html_code", self._generate_html)
-        graph.add_node("generate_javascript_code", self._generate_javascript)
-        graph.add_node("finalize_dashboard", self._finalize_dashboard)
+        graph.add_node("initialize_session", self._wrap_node(self._initialize_session, "initialize_session"))
+        graph.add_node("convert_data_to_json", self._wrap_node(self._convert_data_to_json, "convert_data_to_json"))
+        graph.add_node("analyze_dashboard_requirements", self._wrap_node(self._analyze_requirements, "analyze_dashboard_requirements"))
+        graph.add_node("generate_layout_structure", self._wrap_node(self._generate_layout, "generate_layout_structure"))
+        graph.add_node("create_chart_specifications", self._wrap_node(self._create_charts, "create_chart_specifications"))
+        graph.add_node("generate_insights", self._wrap_node(self._generate_insights, "generate_insights"))
+        graph.add_node("generate_llm_insights", self._wrap_node(self._generate_llm_insights, "generate_llm_insights"))  # NEW: LLM-powered insights
+        # New nodes: generate code via LLM and verify it
+        graph.add_node("generate_code_via_llm", self._wrap_node(self._generate_code_via_llm, "generate_code_via_llm"))
+        graph.add_node("verify_generated_code", self._wrap_node(self._verify_generated_code, "verify_generated_code"))
+        graph.add_node("finalize_dashboard", self._wrap_node(self._finalize_dashboard, "finalize_dashboard"))
         
         # Define workflow edges
         graph.set_entry_point("initialize_session")
@@ -999,9 +1238,11 @@ class LangGraphDashboardBuilder:
         graph.add_edge("analyze_dashboard_requirements", "generate_layout_structure")
         graph.add_edge("generate_layout_structure", "create_chart_specifications")
         graph.add_edge("create_chart_specifications", "generate_insights")
-        graph.add_edge("generate_insights", "generate_html_code")
-        graph.add_edge("generate_html_code", "generate_javascript_code")
-        graph.add_edge("generate_javascript_code", "finalize_dashboard")
+        graph.add_edge("generate_insights", "generate_llm_insights")  # NEW: Add LLM insights
+        # generate code (JSX/HTML/JS) using an LLM-driven generator node, then verify
+        graph.add_edge("generate_llm_insights", "generate_code_via_llm")
+        graph.add_edge("generate_code_via_llm", "verify_generated_code")
+        graph.add_edge("verify_generated_code", "finalize_dashboard")
         graph.add_edge("finalize_dashboard", END)
         
         return graph.compile()
@@ -1010,17 +1251,28 @@ class LangGraphDashboardBuilder:
     def _initialize_session(self, state: DashboardGenerationState) -> DashboardGenerationState:
         """Initialize dashboard generation session"""
         session_id = uuid.uuid4().hex
-        return {**state, "session_id": session_id, "error_messages": []}
+        return {"session_id": session_id}
     
     def _convert_data_to_json(self, state: DashboardGenerationState) -> DashboardGenerationState:
         """Convert DataFrame to optimized JSON format"""
         df = state["df"]
-        json_result = self.csv_converter.convert_csv_to_json("", "optimized")
+        # Avoid calling CSV converter with invalid path; use orchestrator's converter directly
+        try:
+            json_data = self.agent_orchestrator.data_tools.convert_to_json_structure(df)
+        except Exception as e:
+            # Fallback to a minimal JSON structure to keep workflow moving
+            logger.warning(f"convert_to_json_structure failed: {e}; using minimal JSON structure")
+            json_data = {
+                "metadata": {
+                    "total_rows": len(df),
+                    "total_columns": len(df.columns),
+                    "created_at": datetime.now().isoformat(),
+                },
+                "columns": df.columns.tolist(),
+                "data": df.head(1000).to_dict("records") if hasattr(df, "to_dict") else [],
+            }
         
-        # Use data processor to convert DataFrame directly
-        json_data = self.agent_orchestrator.data_tools.convert_to_json_structure(df)
-        
-        return {**state, "json_data": json_data}
+        return {"json_data": json_data}
     
     def _analyze_requirements(self, state: DashboardGenerationState) -> DashboardGenerationState:
         """Analyze dashboard requirements based on data and user input"""
@@ -1048,14 +1300,14 @@ class LangGraphDashboardBuilder:
                 dashboard_type, len(df.columns)
             )
         
-        return {**state, "layout_requirements": layout_requirements}
+        return {"layout_requirements": layout_requirements, "data_analysis": analysis}
     
     def _generate_layout(self, state: DashboardGenerationState) -> DashboardGenerationState:
         """Generate optimal layout structure"""
         layout_requirements = state.get("layout_requirements", {})
         
-        # Use the layout requirements as the final layout config
-        return state
+        # Re-emit layout requirements to satisfy LangGraph's requirement that each node updates state
+        return {"layout_requirements": layout_requirements}
     
     def _create_charts(self, state: DashboardGenerationState) -> DashboardGenerationState:
         """Create chart specifications"""
@@ -1066,19 +1318,21 @@ class LangGraphDashboardBuilder:
         tool_class = DashboardToolFactory.get_tool(dashboard_type)
         
         if hasattr(tool_class, 'create_executive_charts'):
-            layout_requirements = state.get("layout_requirements", {})
-            charts = tool_class.create_executive_charts(df, layout_requirements)
+            # Use the stored data_analysis (which contains metrics with 'kpis')
+            data_analysis = state.get("data_analysis", {})
+            charts = tool_class.create_executive_charts(df, data_analysis)
         elif hasattr(tool_class, 'create_quality_charts'):
-            quality_report = tool_class.analyze_data_quality_comprehensive(df)
-            charts = tool_class.create_quality_charts(df, quality_report)
+            data_analysis = state.get("data_analysis", tool_class.analyze_data_quality_comprehensive(df))
+            charts = tool_class.create_quality_charts(df, data_analysis)
         elif hasattr(tool_class, 'create_exploratory_charts'):
-            patterns = tool_class.analyze_data_patterns(df)
-            charts = tool_class.create_exploratory_charts(df, patterns)
+            data_analysis = state.get("data_analysis", tool_class.analyze_data_patterns(df))
+            charts = tool_class.create_exploratory_charts(df, data_analysis)
         else:
             # Fallback to general chart suggestions
             charts = self.agent_orchestrator.dashboard_tools.suggest_chart_types(df, dashboard_type)
         
-        return {**state, "chart_specifications": charts}
+        # With operator.add, return only new charts
+        return {"chart_specifications": charts}
     
     def _generate_insights(self, state: DashboardGenerationState) -> DashboardGenerationState:
         """Generate insights for the dashboard"""
@@ -1086,7 +1340,7 @@ class LangGraphDashboardBuilder:
         dashboard_type = state.get("dashboard_type", "exploratory")
         
         # Generate insights based on dashboard type
-        insights = [
+        new_insights = [
             f"Dashboard generated for {len(df)} records across {len(df.columns)} variables",
             f"Analysis type: {dashboard_type.replace('_', ' ').title()}",
             f"Data completeness: {((1 - df.isnull().sum().sum() / (df.shape[0] * df.shape[1])) * 100):.1f}%"
@@ -1094,27 +1348,490 @@ class LangGraphDashboardBuilder:
         
         # Add type-specific insights
         if dashboard_type == "executive":
-            insights.extend([
+            new_insights.extend([
                 "Key performance indicators identified and prioritized",
                 "Business metrics configured for executive review"
             ])
         elif dashboard_type == "data_quality":
             missing_percent = (df.isnull().sum().sum() / (df.shape[0] * df.shape[1])) * 100
-            insights.extend([
+            new_insights.extend([
                 f"Data quality assessment completed",
                 f"Missing data: {missing_percent:.1f}% of total values"
             ])
         
-        return {**state, "insights": insights}
+        # With operator.add, return only new insights - they'll be added to existing
+        return {"insights": new_insights}
+    
+    def _generate_llm_insights(self, state: DashboardGenerationState) -> DashboardGenerationState:
+        """Generate comprehensive insights using LLM analysis"""
+        if not self.use_llm_insights or not self.insights_engine:
+            # Ensure this node updates at least one field to comply with LangGraph
+            return {"insights": ["Advanced LLM insights unavailable; showing baseline insights."]}
+        
+        try:
+            df = state["df"]
+            dashboard_type = state.get("dashboard_type", "exploratory")
+            chart_specs = state.get("chart_specifications", [])
+            data_analysis = state.get("data_analysis", {})
+            user_context = state.get("user_context")
+            
+            # Generate comprehensive LLM insights
+            llm_insights = self.insights_engine.analyze_dashboard(
+                df=df,
+                dashboard_type=dashboard_type,
+                chart_specs=chart_specs,
+                data_analysis=data_analysis,
+                user_context=user_context
+            )
+            
+            # Convert structured insights to readable summary points
+            insight_summary = generate_insights_summary(llm_insights)
+            
+            # Add summary points to the insights list (these will show in the dashboard)
+            return {
+                "llm_insights": llm_insights,  # Full structured insights
+                "insights": insight_summary     # Summary points for display
+            }
+            
+        except Exception as e:
+            print(f"Warning: LLM insights generation failed: {e}")
+            return {
+                "insights": [f"Advanced insights temporarily unavailable"]
+            }
     
     def _generate_html(self, state: DashboardGenerationState) -> DashboardGenerationState:
         """Generate HTML code for the dashboard"""
         layout_requirements = state.get("layout_requirements", {})
         dashboard_type = state.get("dashboard_type", "exploratory")
-        
+        # Legacy fallback: if LLM not available, use code generator
         html_code = self.code_generator.generate_html_structure(layout_requirements, dashboard_type)
+
+        return {"generated_html": html_code}
+
+    def _generate_code_via_llm(self, state: DashboardGenerationState) -> DashboardGenerationState:
+        """Generate full dashboard code (JSX/HTML + JS) using an LLM.
+
+        The prompt is structured with a clear spec: data summary, layout, chart specs, interactivity
+        requirements and a strict output format. If no LLM is available, fall back to
+        the deterministic code generator.
+        """
+        # Assemble context for prompt
+        dashboard_type = state.get("dashboard_type", "exploratory")
+        layout = state.get("layout_requirements", {})
+        charts = state.get("chart_specifications", [])
+        insights = state.get("insights", [])
+        json_data = state.get("json_data", {})
         
-        return {**state, "generated_html": html_code}
+        # Get metadata for prompt context
+        metadata = json_data.get("metadata", {})
+        columns = json_data.get("columns", [])
+        sample_records = json_data.get("data", [])[:5] if json_data.get("data") else []
+
+        # Build a comprehensive, structured prompt for high-quality code generation
+        prompt_lines = [
+            "# ROLE",
+            "You are an expert full-stack engineer specializing in data visualization and dashboard development.",
+            f"Generate a production-ready, interactive {dashboard_type.upper()} dashboard.",
+            "",
+            "# OUTPUT FORMAT",
+            "Return ONLY valid code - either:",
+            "1. A complete HTML5 file with embedded CSS and JavaScript, OR",
+            "2. A React functional component (JSX/TSX)",
+            "",
+            "If returning JSON-wrapped code, use this EXACT format:",
+            '{"type": "html", "code": "<!DOCTYPE html>..."}',
+            'OR {"type": "jsx", "code": "import React..."}',
+            "",
+            "# TECHNICAL REQUIREMENTS",
+            "## Charts & Visualization",
+            "- Use Plotly.js (CDN: https://cdn.plot.ly/plotly-2.26.0.min.js) for all charts",
+            "- Each chart MUST have a unique, deterministic ID (e.g., chart_0, chart_1, ...)",
+            "- Implement chart configurations based on the provided chart specifications",
+            "- Make all charts fully responsive (use Plotly.Plots.resize on window resize)",
+            "- Include proper error handling for chart rendering",
+            "",
+            "## Layout & Styling",
+            f"- Grid layout: {layout.get('grid_structure', {}).get('columns', 2)} columns",
+            "- Use CSS Grid or Flexbox for responsive layout",
+            "- Color scheme: Modern, professional (primary: #2563eb, accent: #3b82f6)",
+            "- Typography: Use Inter or system fonts with proper hierarchy",
+            "- Ensure mobile responsiveness (breakpoints at 768px, 1024px)",
+            "",
+            "## Interactivity",
+            "- Add hover effects on cards and charts",
+            "- Include export functionality (download dashboard as HTML)",
+            "- Add fullscreen toggle for charts",
+            "- Implement smooth transitions (300ms ease)",
+            "",
+            "## Code Quality",
+            "- Write clean, well-commented code",
+            "- Use semantic HTML5 elements",
+            "- Follow accessibility best practices (ARIA labels, proper contrast)",
+            "- Optimize for performance (minimize DOM operations)",
+            "- NO placeholder comments like '// Add more charts...' - implement everything",
+            "",
+            "# DATA CONTEXT",
+            f"Dataset: {metadata.get('total_rows', 0)} rows × {metadata.get('total_columns', 0)} columns",
+            f"Columns: {', '.join(columns[:10])}{'...' if len(columns) > 10 else ''}",
+            "",
+            "# LAYOUT CONFIGURATION",
+            json.dumps(layout, indent=2)[:800],
+            "",
+            "# CHART SPECIFICATIONS",
+            "Implement these charts exactly as specified:",
+        ]
+        
+        # Add detailed chart specifications
+        for i, chart in enumerate(charts[:6]):  # Limit to 6 charts for prompt size
+            chart_desc = [
+                f"\n## Chart {i+1}: {chart.get('type', 'unknown').upper()}",
+                f"- ID: chart_{i}",
+                f"- Container ID: chart_{i}_container",
+                f"- Purpose: {chart.get('purpose', 'analysis')}",
+                f"- Columns: {', '.join(chart.get('columns', [])[:3])}",
+                f"- Priority: {chart.get('priority', 'medium')}",
+            ]
+            prompt_lines.extend(chart_desc)
+        
+        prompt_lines.extend([
+            "",
+            "# INSIGHTS TO DISPLAY",
+            "Show these insights in an attractive panel:",
+        ])
+        
+        for insight in insights[:5]:
+            prompt_lines.append(f"• {insight}")
+        
+        prompt_lines.extend([
+            "",
+            "# IMPLEMENTATION CHECKLIST",
+            "✓ Complete HTML structure with proper DOCTYPE",
+            "✓ Embedded CSS with modern design system",
+            "✓ JavaScript with actual chart rendering logic",
+            "✓ KPI cards showing key metrics with trend indicators",
+            "✓ Interactive chart containers with Plotly",
+            "✓ Insights panel with formatted text",
+            "✓ Responsive design for mobile/tablet/desktop",
+            "✓ Export and fullscreen functionality",
+            "✓ Professional color scheme and typography",
+            "✓ No TODO comments or incomplete implementations",
+            "",
+            "# SAMPLE DATA (for reference)",
+            json.dumps(sample_records[:3], indent=2)[:500] if sample_records else "No sample data",
+            "",
+            "NOW GENERATE THE COMPLETE, PRODUCTION-READY CODE:",
+        ])
+
+        prompt = "\n".join(prompt_lines)
+
+        generated_html = ""
+        generated_js = ""
+
+        # Try to call an LLM if available and API key is configured
+        # Priority: Groq (fast, cost-effective), then OpenAI
+        llm_backend = None
+        backend_name = None
+        try:
+            if LCGroq is not None and os.getenv("GROQ_API_KEY"):
+                backend_name = "groq"
+                llm_backend = LCGroq(model=os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile"), temperature=0.1)
+            elif LCOpenAI is not None and os.getenv("OPENAI_API_KEY"):
+                backend_name = "openai"
+                if _USE_CHAT_MODEL:
+                    llm_backend = LCOpenAI(
+                        model="gpt-4" if os.getenv("USE_GPT4", "false").lower() == "true" else "gpt-3.5-turbo",
+                        temperature=0.1,
+                        max_tokens=4000
+                    )
+                else:
+                    llm_backend = LCOpenAI(temperature=0.1, max_tokens=4000)
+        except Exception as e:
+            logger.warning(f"Failed initializing preferred LLM backend: {e}")
+
+        if llm_backend is not None:
+            try:
+                logger.info(f"Attempting {backend_name} LLM-based dashboard code generation...")
+                # For chat models, we need to format as messages
+                try:
+                    from langchain.schema import HumanMessage as _HumanMessage  # type: ignore
+                    response = llm_backend.invoke([_HumanMessage(content=prompt)])
+                    text = response.content if hasattr(response, 'content') else str(response)
+                except Exception:
+                    # Some non-chat models use call with string
+                    response = llm_backend(prompt)
+                    text = response if isinstance(response, str) else str(response)
+                
+                logger.info(f"LLM response received, length: {len(text)} chars")
+                
+                # Try to extract JSON-like {"type":"...","code":"..."}
+                start = text.find('{')
+                end = text.rfind('}')
+                
+                if start != -1 and end > start:
+                    try:
+                        # Try to parse as JSON
+                        candidate = json.loads(text[start:end+1])
+                        code_type = candidate.get("type", "html")
+                        code = candidate.get("code", "")
+                        
+                        if code and len(code) > 100:
+                            logger.info(f"Successfully parsed LLM JSON response: type={code_type}")
+                            if code_type == "jsx":
+                                return {
+                                    **state, 
+                                    "generated_html": "", 
+                                    "generated_js": "", 
+                                    "generated_code_type": "jsx", 
+                                    "generated_code": code
+                                }
+                            else:
+                                return {
+                                    **state, 
+                                    "generated_html": code, 
+                                    "generated_js": "", 
+                                    "generated_code_type": "html", 
+                                    "generated_code": code
+                                }
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"Failed to parse LLM response as JSON: {e}")
+                
+                # Not JSON or invalid: assume raw HTML/JS returned
+                text_str = text.strip()
+                
+                # Check if it looks like HTML
+                if "<!DOCTYPE" in text_str or "<html" in text_str.lower():
+                    logger.info("LLM returned raw HTML")
+                    return {
+                        **state, 
+                        "generated_html": text_str, 
+                        "generated_js": "", 
+                        "generated_code_type": "html", 
+                        "generated_code": text_str
+                    }
+                # Check if it looks like JSX/React
+                elif ("import React" in text_str or "export default" in text_str or 
+                      "const " in text_str and "return (" in text_str):
+                    logger.info("LLM returned JSX/React component")
+                    return {
+                        **state, 
+                        "generated_html": "", 
+                        "generated_js": text_str, 
+                        "generated_code_type": "jsx", 
+                        "generated_code": text_str
+                    }
+                else:
+                    logger.warning("LLM response format not recognized, falling back to deterministic generator")
+                    
+            except Exception as e:
+                logger.warning(f"LLM generation failed: {e}, falling back to deterministic generator")
+        else:
+            if LCOpenAI is None:
+                logger.info("LangChain OpenAI not available, using deterministic generator")
+            else:
+                logger.info("OPENAI_API_KEY not set, using deterministic generator")
+
+        # Fallback: deterministic generator
+        try:
+            html_code = self.code_generator.generate_html_structure(layout, dashboard_type)
+            js_code = self.code_generator.generate_javascript_code(charts, insights, json_data)
+            # Inject JS placeholder into HTML so finalize step finds it
+            final_html = html_code.replace("// Dashboard JavaScript will be injected here", js_code)
+
+            return {"generated_html": final_html, "generated_js": js_code, "generated_code_type": "html", "generated_code": final_html}
+        except Exception as e:
+            logger.error(f"Fallback code generation failed: {e}")
+            return {"generated_html": "", "generated_js": "", "error_messages": [str(e)]}
+
+    def _verify_generated_code(self, state: DashboardGenerationState) -> DashboardGenerationState:
+        """Verify generated code with comprehensive heuristics and optional LLM-based validation.
+
+        Checks:
+        - Basic structure (non-empty, minimum length, proper format)
+        - Chart rendering (Plotly presence, chart container IDs)
+        - Interactivity (event handlers, functions)
+        - Styling (CSS presence, responsiveness)
+        - Data integration (data variables, proper structure)
+        - If LLM available: semantic code review
+        """
+        code = state.get("generated_code", state.get("generated_html", "")) or ""
+        code_type = state.get("generated_code_type", "html")
+
+        verifications = []
+        warnings = []
+        passed_checks = []
+        
+        try:
+            # === BASIC STRUCTURE CHECKS ===
+            if not code or len(code) < 200:
+                verifications.append("CRITICAL: Generated code is empty or too short (< 200 chars)")
+            else:
+                passed_checks.append("Code length adequate")
+            
+            # Check for proper document structure
+            if code_type == "html":
+                if "<!DOCTYPE" not in code and "<html" not in code.lower():
+                    verifications.append("CRITICAL: Missing DOCTYPE or HTML tag")
+                else:
+                    passed_checks.append("Valid HTML structure")
+                    
+                if "<head>" not in code.lower():
+                    warnings.append("Missing <head> section")
+                    
+                if "<body>" not in code.lower():
+                    verifications.append("CRITICAL: Missing <body> tag")
+                else:
+                    passed_checks.append("Body section present")
+                    
+            elif code_type == "jsx":
+                if "export default" not in code and "export const" not in code:
+                    warnings.append("No default export found (JSX component)")
+                else:
+                    passed_checks.append("JSX export detected")
+                    
+                if "return (" not in code and "return >" not in code:
+                    verifications.append("CRITICAL: No JSX return statement found")
+                else:
+                    passed_checks.append("JSX return statement present")
+            
+            # === CHART RENDERING CHECKS ===
+            has_plotly = "Plotly" in code or "plotly" in code.lower()
+            if not has_plotly:
+                verifications.append("CRITICAL: No Plotly library usage detected")
+            else:
+                passed_checks.append("Plotly library integrated")
+                
+                # Check for actual chart rendering calls
+                if "Plotly.newPlot" in code or "Plotly.react" in code:
+                    passed_checks.append("Plotly chart rendering calls present")
+                else:
+                    warnings.append("Plotly imported but no rendering calls found")
+            
+            # Check for chart container IDs
+            chart_containers = []
+            for i in range(10):
+                if f"chart_{i}" in code or f"chart-{i}" in code:
+                    chart_containers.append(f"chart_{i}")
+                    
+            if chart_containers:
+                passed_checks.append(f"Chart containers found: {', '.join(chart_containers[:3])}")
+            else:
+                verifications.append("WARNING: No deterministic chart container IDs detected (chart_0, chart_1, ...)")
+            
+            # === STYLING CHECKS ===
+            has_css = "<style>" in code or "styled-components" in code or ".css" in code
+            if not has_css and code_type == "html":
+                warnings.append("No embedded CSS or style tags found")
+            else:
+                passed_checks.append("Styling present")
+                
+            # Check for responsive design
+            has_responsive = any(keyword in code.lower() for keyword in [
+                "@media", "max-width", "min-width", "responsive", "grid-template-columns"
+            ])
+            if has_responsive:
+                passed_checks.append("Responsive design patterns detected")
+            else:
+                warnings.append("No obvious responsive design patterns")
+            
+            # === INTERACTIVITY CHECKS ===
+            has_event_handlers = any(keyword in code for keyword in [
+                "onclick", "addEventListener", "onClick", "onLoad"
+            ])
+            if has_event_handlers:
+                passed_checks.append("Event handlers present")
+            else:
+                warnings.append("No event handlers detected (limited interactivity)")
+            
+            # === DATA INTEGRATION CHECKS ===
+            has_data_vars = any(keyword in code for keyword in [
+                "data", "dataset", "dashboardData", "chartData"
+            ])
+            if has_data_vars:
+                passed_checks.append("Data variables detected")
+            else:
+                warnings.append("No obvious data variables found")
+            
+            # === LLM-BASED SEMANTIC VERIFICATION ===
+            llm_review_summary = None
+            if LCOpenAI is not None and os.getenv("OPENAI_API_KEY") and len(code) > 100:
+                try:
+                    logger.info("Running LLM-based code verification...")
+                    
+                    verifier_prompt = f"""You are a senior code reviewer. Review this {code_type.upper()} dashboard code.
+
+EVALUATION CRITERIA:
+1. Chart Integration: Does it properly render interactive charts with Plotly?
+2. Data Flow: Are data variables properly defined and used?
+3. Responsiveness: Is the layout responsive and mobile-friendly?
+4. Interactivity: Are there interactive features (export, fullscreen, hover)?
+5. Code Quality: Is the code clean, well-structured, and production-ready?
+6. Completeness: Are all required components implemented (no TODOs)?
+
+CODE TO REVIEW (first 4000 chars):
+{code[:4000]}
+
+Return ONLY a JSON object in this format:
+{{
+  "valid": true/false,
+  "score": 0-100,
+  "issues": ["issue1", "issue2", ...],
+  "strengths": ["strength1", "strength2", ...],
+  "summary": "Brief overall assessment"
+}}"""
+
+                    if _USE_CHAT_MODEL:
+                        from langchain.schema import HumanMessage
+                        llm = LCOpenAI(model="gpt-3.5-turbo", temperature=0, max_tokens=500)
+                        vresp = llm.invoke([HumanMessage(content=verifier_prompt)])
+                        vtext = vresp.content if hasattr(vresp, 'content') else str(vresp)
+                    else:
+                        llm = LCOpenAI(temperature=0, max_tokens=500)
+                        vtext = llm(verifier_prompt)
+                    
+                    # Parse LLM verification response
+                    vjson_start = str(vtext).find('{')
+                    vjson_end = str(vtext).rfind('}')
+                    
+                    if vjson_start != -1 and vjson_end > vjson_start:
+                        v = json.loads(str(vtext)[vjson_start:vjson_end+1])
+                        llm_review_summary = {
+                            "valid": v.get('valid', True),
+                            "score": v.get('score', 0),
+                            "issues": v.get('issues', []),
+                            "strengths": v.get('strengths', []),
+                            "summary": v.get('summary', '')
+                        }
+                        
+                        if not v.get('valid', True):
+                            verifications.extend([f"LLM REVIEW: {issue}" for issue in v.get('issues', [])[:3]])
+                        
+                        logger.info(f"LLM verification complete: score={v.get('score', 0)}/100")
+                        
+                except Exception as e:
+                    logger.warning(f"LLM verification failed: {e}")
+                    warnings.append(f"LLM verification unavailable: {str(e)[:100]}")
+
+        except Exception as e:
+            verifications.append(f"Verification error: {str(e)}")
+
+        # Compile verification report
+        verification_report = {
+            "critical_issues": [v for v in verifications if "CRITICAL" in v],
+            "warnings": warnings,
+            "passed_checks": passed_checks,
+            "llm_review": llm_review_summary,
+            "overall_status": "PASS" if len([v for v in verifications if "CRITICAL" in v]) == 0 else "FAIL"
+        }
+        
+        logger.info(f"Verification complete: {verification_report['overall_status']}, "
+                   f"{len(passed_checks)} checks passed, "
+                   f"{len(verification_report['critical_issues'])} critical issues, "
+                   f"{len(warnings)} warnings")
+
+        return {
+            "verification_issues": verifications,
+            "verification_report": verification_report
+        }
     
     def _generate_javascript(self, state: DashboardGenerationState) -> DashboardGenerationState:
         """Generate JavaScript code for dashboard functionality"""
@@ -1126,7 +1843,7 @@ class LangGraphDashboardBuilder:
             chart_specifications, insights, json_data
         )
         
-        return {**state, "generated_js": js_code}
+        return {"generated_js": js_code}
     
     def _finalize_dashboard(self, state: DashboardGenerationState) -> DashboardGenerationState:
         """Finalize the dashboard by combining all components"""
@@ -1139,7 +1856,7 @@ class LangGraphDashboardBuilder:
             js_code
         )
         
-        return {**state, "generated_html": final_html}
+        return {"generated_html": final_html}
     
     # Public API
     async def build_dashboard(
@@ -1168,6 +1885,7 @@ class LangGraphDashboardBuilder:
                 "json_data": result.get("json_data", {}),
                 "chart_specifications": result.get("chart_specifications", []),
                 "insights": result.get("insights", []),
+                "llm_insights": result.get("llm_insights", {}),  # NEW: Include LLM insights
                 "layout_config": result.get("layout_requirements", {}),
                 "generation_timestamp": datetime.now().isoformat()
             }

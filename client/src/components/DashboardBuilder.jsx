@@ -108,14 +108,34 @@ const DashboardBuilder = ({ fileId, onDashboardGenerated }) => {
 
       let response;
 
-      // Handle different dashboard types
-      if (selectedType === "interactive") {
-        formData.append("include_raw_data", "true");
-        if (businessContext) {
-          formData.append("business_context", businessContext);
-        }
+      // Use LangGraph dashboard generation for all types (AI-powered, no templates)
+      if (
+        selectedType === "interactive" ||
+        selectedType === "exploratory" ||
+        selectedType === "executive" ||
+        selectedType === "data_quality"
+      ) {
+        // Map types
+        const dashboardTypeMap = {
+          interactive: "exploratory",
+          exploratory: "exploratory",
+          executive: "executive",
+          data_quality: "data_quality",
+          auto: "exploratory",
+        };
+
+        formData.append(
+          "dashboard_type",
+          dashboardTypeMap[selectedType] || "exploratory"
+        );
+        formData.append(
+          "user_context",
+          businessContext || "Generate a comprehensive dashboard"
+        );
+        formData.append("target_audience", "analyst");
+
         response = await fetch(
-          "http://localhost:8000/api/dashboard/generate-interactive",
+          "http://localhost:8000/api/langgraph/dashboard/generate",
           {
             method: "POST",
             body: formData,
@@ -133,11 +153,18 @@ const DashboardBuilder = ({ fileId, onDashboardGenerated }) => {
           }
         );
       } else {
+        // Default to LangGraph for any other type
         formData.append("dashboard_type", selectedType);
-        response = await fetch("http://localhost:8000/api/dashboard/generate", {
-          method: "POST",
-          body: formData,
-        });
+        formData.append("user_context", businessContext || "");
+        formData.append("target_audience", "analyst");
+
+        response = await fetch(
+          "http://localhost:8000/api/langgraph/dashboard/generate",
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
       }
 
       if (!response.ok) {

@@ -38,13 +38,13 @@ class AIAgent:
         graph.add_node("summarize", self._node_summarize)
         graph.add_node("recommend", self._node_recommend)
         graph.add_node("execute", self._node_execute)
-        graph.add_node("insights", self._node_insights)
+        graph.add_node("generate_insights", self._node_insights)
 
         graph.set_entry_point("summarize")
         graph.add_edge("summarize", "recommend")
         graph.add_edge("recommend", "execute")
-        graph.add_edge("execute", "insights")
-        graph.add_edge("insights", END)
+        graph.add_edge("execute", "generate_insights")
+        graph.add_edge("generate_insights", END)
 
         self._compiled = graph.compile()
 

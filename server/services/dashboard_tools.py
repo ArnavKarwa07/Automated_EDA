@@ -156,7 +156,7 @@ class ExecutiveDashboardTool:
         if numerical_cols:
             primary_col = numerical_cols[0]
             charts.append({
-                "id": "primary_trend",
+                "id": "primary_chart",  # Match layout section ID
                 "type": "line_chart",
                 "config": {
                     "x": list(range(len(df))),
@@ -166,6 +166,7 @@ class ExecutiveDashboardTool:
                     "show_markers": True,
                     "smooth": True
                 },
+                "columns": [primary_col],  # Add columns for data extraction
                 "size": "two_thirds_width",
                 "priority": "high"
             })
@@ -177,7 +178,7 @@ class ExecutiveDashboardTool:
             current_val = df[second_col].iloc[-1] if len(df) > 0 else 0
             
             charts.append({
-                "id": "performance_gauge",
+                "id": "secondary_chart",  # Match layout section ID
                 "type": "gauge_chart",
                 "config": {
                     "value": float(current_val),
@@ -341,6 +342,7 @@ class DataQualityDashboardTool:
                 "color": "#dc2626",
                 "orientation": "vertical"
             },
+            "columns": list(missing_data.keys()),
             "size": "half_width",
             "priority": "high"
         })
@@ -358,6 +360,7 @@ class DataQualityDashboardTool:
                     "color": "#d97706",
                     "orientation": "vertical"
                 },
+                "columns": list(outlier_data.keys()),
                 "size": "half_width",
                 "priority": "medium"
             })
@@ -499,8 +502,9 @@ class ExploratoryDashboardTool:
             insights.append(f"{normal_distributions} variables show approximately normal distributions")
         
         # Correlation insights
-        if patterns["correlations"]:
-            strong_corr_count = len(patterns["correlations"]["strong_correlations"])
+        correlations = patterns.get("correlations") or {}
+        if correlations:
+            strong_corr_count = len(correlations.get("strong_correlations", []))
             if strong_corr_count > 0:
                 insights.append(f"{strong_corr_count} strong correlations identified for further investigation")
         
@@ -521,19 +525,21 @@ class ExploratoryDashboardTool:
         categorical_cols = df.select_dtypes(include=['object']).columns.tolist()
         
         # Correlation Heatmap
-        if patterns["correlations"] and len(numerical_cols) > 1:
-            corr_matrix = patterns["correlations"]["matrix"]
+        correlations = patterns.get("correlations") or {}
+        if correlations and len(numerical_cols) > 1:
+            corr_matrix = correlations.get("matrix", {})
             charts.append({
                 "id": "correlation_heatmap",
                 "type": "heatmap",
                 "config": {
-                    "z": [list(corr_matrix[col].values()) for col in corr_matrix.keys()],
-                    "x": list(corr_matrix.keys()),
-                    "y": list(corr_matrix.keys()),
+                    "z": [list(corr_matrix[col].values()) for col in corr_matrix.keys()] if isinstance(corr_matrix, dict) else [],
+                    "x": list(corr_matrix.keys()) if isinstance(corr_matrix, dict) else [],
+                    "y": list(corr_matrix.keys()) if isinstance(corr_matrix, dict) else [],
                     "title": "Correlation Matrix",
                     "colorscale": "RdBu",
                     "symmetric": True
                 },
+                "columns": numerical_cols,
                 "size": "half_width",
                 "priority": "high"
             })
@@ -550,6 +556,7 @@ class ExploratoryDashboardTool:
                     "color": "#7c3aed",
                     "bins": 30
                 },
+                "columns": [primary_col],
                 "size": "half_width",
                 "priority": "high"
             })
@@ -566,6 +573,7 @@ class ExploratoryDashboardTool:
                     "color": "#059669",
                     "size": 6
                 },
+                "columns": [numerical_cols[0], numerical_cols[1]],
                 "size": "half_width",
                 "priority": "medium"
             })
@@ -584,6 +592,7 @@ class ExploratoryDashboardTool:
                     "color": "#d97706",
                     "orientation": "vertical"
                 },
+                "columns": [cat_col],
                 "size": "half_width",
                 "priority": "medium"
             })

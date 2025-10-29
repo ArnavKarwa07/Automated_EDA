@@ -614,10 +614,17 @@ class PlotlyChartBuilder:
     @staticmethod
     def _build_histogram(df: pd.DataFrame, column: str, config: Dict[str, Any]) -> Dict[str, Any]:
         """Build histogram chart"""
+        # Get bins value and ensure it's an integer
+        bins = config.get("bins", 30)
+        if isinstance(bins, str) and bins == "auto":
+            bins = 30  # Default to 30 bins if "auto" is specified
+        elif not isinstance(bins, int):
+            bins = int(bins) if str(bins).isdigit() else 30
+            
         fig = px.histogram(
             df, 
             x=column,
-            nbins=config.get("bins", 30),
+            nbins=bins,
             title=config.get("title", f"Distribution of {column}")
         )
         
@@ -1038,8 +1045,8 @@ class LangGraphChartGenerator:
     
     def _finalize_charts(self, state: ChartGenerationState) -> ChartGenerationState:
         """Finalize charts and prepare output"""
-        # Add any final processing
-        return state
+        # Add any final processing; re-emit a field to satisfy LangGraph's update requirement
+        return {"final_charts": state.get("final_charts", [])}
     
     # Public API
     async def generate_charts(

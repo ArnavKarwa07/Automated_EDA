@@ -3,8 +3,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from dotenv import load_dotenv
 import os
+import warnings
+import sys
 from api import router as api_router
 import uvicorn
+
+# Suppress warnings
+warnings.filterwarnings("ignore", message=".*huggingface_hub.*")
+
+# Note: You may see "Error importing huggingface_hub.hf_api" messages during startup.
+# These are harmless warnings from LangChain's optional dependencies and don't affect functionality.
 
 # Ensure numpy is available
 try:
@@ -18,6 +26,13 @@ except ImportError:
 
 # Load environment variables
 load_dotenv()
+
+# Verify Groq API key is loaded
+groq_key = os.getenv("GROQ_API_KEY")
+if groq_key:
+    print(f"✓ Groq API key loaded (ends with: ...{groq_key[-8:]})")
+else:
+    print("⚠ Warning: GROQ_API_KEY not found in environment")
 
 app = FastAPI(
     title="Automated EDA System",

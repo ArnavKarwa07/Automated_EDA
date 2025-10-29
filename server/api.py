@@ -211,7 +211,8 @@ async def process_data(
             else:
                 raise HTTPException(status_code=400, detail="Invalid operation")
 
-        return result
+        # Convert NumPy types to native Python types before returning
+        return convert_numpy_types(result)
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
@@ -241,11 +242,27 @@ async def get_charts(file_id: str, chart_types: Optional[str] = None):
             legacy_charts = []
             for chart in result["charts"]:
                 if chart.get("status") == "success" and "chart_data" in chart:
+                    chart_data = chart["chart_data"]
+                    
+                    # Ensure data is in JSON string format (frontend expects this)
+                    if "plotly_json" in chart_data:
+                        # Use plotly_json if available (already a string)
+                        data_string = chart_data["plotly_json"]
+                    elif "data" in chart_data:
+                        # Convert data dict to JSON string
+                        data_obj = chart_data["data"]
+                        data_string = json.dumps(data_obj) if isinstance(data_obj, dict) else data_obj
+                    else:
+                        # Fallback: convert entire chart_data to JSON
+                        data_string = json.dumps(chart_data)
+                    
                     legacy_charts.append({
                         "type": chart["chart_type"],
                         "config": chart.get("config", {}),
-                        "data": chart["chart_data"],
+                        "data": data_string,  # JSON string format
                         "id": chart.get("id", ""),
+                        "title": chart.get("config", {}).get("title", chart["chart_type"].replace("_", " ").title()),
+                        "description": chart.get("purpose", ""),
                         "purpose": chart.get("purpose", ""),
                         "priority": chart.get("priority", "medium")
                     })
@@ -791,6 +808,7 @@ async def langgraph_generate_dashboard(
                 },
                 "charts_generated": len(result.get("chart_specifications", [])),
                 "insights": result.get("insights", []),
+                "llm_insights": result.get("llm_insights", {}),  # NEW: Structured LLM insights
                 "workflow_type": "langgraph_ai_agent"
             })
         else:
