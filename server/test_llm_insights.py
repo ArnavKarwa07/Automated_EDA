@@ -202,10 +202,10 @@ async def test_exploratory_insights():
             else:
                 print(f"   {insights['correlations']}")
         
-        # Display hypotheses
-        if 'hypotheses' in insights:
-            print(f"\n💭 Generated Hypotheses:")
-            for i, hyp in enumerate(insights['hypotheses'][:5], 1):
+        # Display Hypothesis 
+        if 'Hypothesis ' in insights:
+            print(f"\n💭 Generated Hypothesis :")
+            for i, hyp in enumerate(insights['Hypothesis '][:5], 1):
                 print(f"   {i}. {hyp}")
         
         # Deep dive recommendations
@@ -254,7 +254,7 @@ async def main():
         print("\n💡 The LLM Insights Engine is working correctly and generating:")
         print("   • Executive summaries and strategic recommendations")
         print("   • Data quality assessments and remediation priorities")
-        print("   • Exploratory patterns, correlations, and hypotheses")
+        print("   • Exploratory patterns, correlations, and Hypothesis ")
         print("\n🎯 Real-time, valuable insights are now available for all dashboards!")
     else:
         print(f"\n⚠️  {total_tests - success_count} test(s) FAILED")

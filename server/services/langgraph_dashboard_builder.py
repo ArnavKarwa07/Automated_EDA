@@ -11,6 +11,8 @@ from datetime import datetime
 import logging
 import uuid
 import operator
+import hashlib
+from functools import lru_cache
 
 from langgraph.graph import StateGraph, END
 from .langgraph_agents import LangGraphAgentOrchestrator
@@ -43,11 +45,29 @@ except Exception:
 
 # Try to import Groq chat model as well
 LCGroq = None
+_GROQ_IMPORT_ERROR = None
 try:
     from langchain_groq import ChatGroq as _ChatGroq  # type: ignore
     LCGroq = _ChatGroq
-except Exception:
+except Exception as e:
+    _GROQ_IMPORT_ERROR = str(e)
     LCGroq = None
+
+# Try to import HumanMessage for different LangChain versions
+_HumanMessage = None
+_HumanMessage_Import_Error = None
+try:
+    # Try langchain_core first (new versions)
+    from langchain_core.messages import HumanMessage as _HumanMessage_
+    _HumanMessage = _HumanMessage_
+except Exception:
+    try:
+        # Try langchain.schema (older versions)
+        from langchain.schema import HumanMessage as _HumanMessage_
+        _HumanMessage = _HumanMessage_
+    except Exception as e:
+        _HumanMessage_Import_Error = str(e)
+        _HumanMessage = None
 
 logger = logging.getLogger(__name__)
 
@@ -606,6 +626,59 @@ const dashboardData = {json.dumps(json_data, indent=2, cls=NumpyEncoder)};
 const chartConfigs = {json.dumps(chart_configs, indent=2, cls=NumpyEncoder)};
 const insights = {json.dumps(insights, indent=2)};
 
+// Shared color palette to keep charts vivid and consistent
+const chartPalette = ['#1e3a8a', '#2563eb', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+const borderColor = '#0f172a';
+
+function pickColor(index) {{
+    return chartPalette[index % chartPalette.length];
+}}
+
+// Ensure we have enough varied charts; auto-derive extras when the incoming spec is sparse
+if (chartConfigs.length < 4) {{
+    const numericalColumns = dashboardData.metadata?.data_types?.numerical_columns || [];
+    const categoricalColumns = dashboardData.metadata?.data_types?.categorical_columns || [];
+    const derived = [];
+
+    if (numericalColumns.length >= 1) {{
+        derived.push({{
+            id: `auto_hist_${{chartConfigs.length + derived.length}}`,
+            type: 'histogram',
+            columns: [numericalColumns[0]],
+            title: 'Distribution Overview'
+        }});
+    }}
+
+    if (numericalColumns.length >= 2) {{
+        derived.push({{
+            id: `auto_scatter_${{chartConfigs.length + derived.length}}`,
+            type: 'scatter',
+            columns: [numericalColumns[0], numericalColumns[1]],
+            title: 'Numeric Relationship'
+        }});
+    }}
+
+    if (categoricalColumns.length >= 1) {{
+        derived.push({{
+            id: `auto_bar_${{chartConfigs.length + derived.length}}`,
+            type: 'bar_chart',
+            columns: [categoricalColumns[0]],
+            title: 'Category Breakdown'
+        }});
+    }}
+
+    if (numericalColumns.length >= 3) {{
+        derived.push({{
+            id: `auto_heatmap_${{chartConfigs.length + derived.length}}`,
+            type: 'heatmap',
+            columns: numericalColumns.slice(0, 5),
+            title: 'Correlation Matrix'
+        }});
+    }}
+
+    derived.slice(0, 4 - chartConfigs.length).forEach(cfg => chartConfigs.push(cfg));
+}}
+
 // Dashboard Initialization
 document.addEventListener('DOMContentLoaded', function() {{
     initializeDashboard();
@@ -696,7 +769,8 @@ function renderCharts() {{
         }}
         
         if (chartElement) {{
-            renderChart(chartElement, config);
+            config._colorIndex = index;
+            renderChart(chartElement, config, index);
             renderedElements.add(chartElement);
         }} else {{
             console.warn(`No element found for chart:`, config);
@@ -708,15 +782,18 @@ function renderCharts() {{
     let configIndex = 0;
     allChartContainers.forEach(container => {{
         if (!renderedElements.has(container) && container.children.length === 0 && configIndex < chartConfigs.length) {{
-            renderChart(container, chartConfigs[configIndex]);
+            chartConfigs[configIndex]._colorIndex = configIndex;
+            renderChart(container, chartConfigs[configIndex], configIndex);
             configIndex++;
         }}
     }});
 }}
 
-function renderChart(element, config) {{
+function renderChart(element, config, index = 0) {{
     // Remove loading spinner
     element.innerHTML = '';
+    const colorIndex = config?._colorIndex != null ? config._colorIndex : index;
+    config._colorIndex = colorIndex;
     
     try {{
         if (config.type === 'histogram') {{
@@ -755,7 +832,10 @@ function renderHistogram(element, config) {{
         x: data,
         type: 'histogram',
         name: config.config?.title || config.title || 'Distribution',
-        marker: {{ color: config.config?.color || config.color || '#3b82f6' }},
+        marker: {{
+            color: config.config?.color || config.color || pickColor(config._colorIndex || 0),
+            line: {{ color: borderColor, width: 1.2 }}
+        }},
         nbinsx: config.config?.bins || 30
     }};
     
@@ -789,9 +869,10 @@ function renderScatter(element, config) {{
         type: 'scatter',
         name: config.config?.title || config.title || 'Scatter Plot',
         marker: {{ 
-            color: config.config?.color || config.color || '#3b82f6',
+            color: config.config?.color || config.color || pickColor(config._colorIndex || 0),
             size: config.config?.size || 8,
-            opacity: 0.7
+            opacity: 0.75,
+            line: {{ color: borderColor, width: 1 }}
         }}
     }};
     
@@ -820,12 +901,16 @@ function renderBarChart(element, config) {{
         yData = Object.values(valueCounts);
     }}
     
+    const barColors = xData.map((_, idx) => pickColor(idx));
     const trace = {{
         x: xData,
         y: yData,
         type: 'bar',
         name: config.config?.title || config.title || 'Bar Chart',
-        marker: {{ color: config.config?.color || config.color || '#3b82f6' }}
+        marker: {{
+            color: config.config?.color || config.color || barColors,
+            line: {{ color: borderColor, width: 1.2 }}
+        }}
     }};
     
     const layout = {{
@@ -875,14 +960,15 @@ function renderLineChart(element, config) {{
         xData = Array.from({{length: yData.length}}, (_, i) => i);
     }}
     
+    const seriesColor = config.config?.color || config.color || pickColor(config._colorIndex || 0);
     const trace = {{
         x: xData,
         y: yData,
         type: 'scatter',
         mode: 'lines+markers',
         name: config.config?.title || config.title || 'Trend',
-        line: {{ color: config.config?.color || config.color || '#3b82f6', width: 3 }},
-        marker: {{ size: 6 }}
+        line: {{ color: seriesColor, width: 3 }},
+        marker: {{ size: 7, color: seriesColor, line: {{ color: borderColor, width: 1.2 }} }}
     }};
     
     const layout = {{
@@ -1174,6 +1260,10 @@ class LangGraphDashboardBuilder:
             self.insights_engine = None
             self.use_llm_insights = False
         
+        # Initialize response cache for LLM calls (max 100 entries with TTL)
+        self.llm_response_cache = {}
+        self.max_cache_size = 100
+        
         self.dashboard_graph = self._create_dashboard_workflow()
     
     def _wrap_node(self, fn, node_name: str):
@@ -1408,6 +1498,123 @@ class LangGraphDashboardBuilder:
 
         return {"generated_html": html_code}
 
+    def _get_cache_key(self, prompt: str, backend_name: str) -> str:
+        """Generate a cache key from prompt hash and backend name.
+        
+        Args:
+            prompt: The LLM prompt
+            backend_name: Name of the LLM backend
+            
+        Returns:
+            Unique cache key
+        """
+        prompt_hash = hashlib.md5(prompt.encode()).hexdigest()[:8]
+        return f"{backend_name}:{prompt_hash}"
+    
+    def _get_cached_response(self, cache_key: str) -> Optional[str]:
+        """Retrieve cached LLM response if available.
+        
+        Args:
+            cache_key: Cache key from _get_cache_key
+            
+        Returns:
+            Cached response or None if not found
+        """
+        if cache_key in self.llm_response_cache:
+            logger.debug(f"Cache hit for key: {cache_key}")
+            return self.llm_response_cache[cache_key]
+        return None
+    
+    def _cache_response(self, cache_key: str, response: str) -> None:
+        """Store LLM response in cache with size management.
+        
+        Args:
+            cache_key: Cache key from _get_cache_key
+            response: LLM response to cache
+        """
+        # Simple LRU: if cache is full, remove oldest entries
+        if len(self.llm_response_cache) >= self.max_cache_size:
+            # Remove 25% oldest entries to make room
+            remove_count = self.max_cache_size // 4
+            for key in list(self.llm_response_cache.keys())[:remove_count]:
+                del self.llm_response_cache[key]
+            logger.debug(f"Cache cleanup: removed {remove_count} oldest entries")
+        
+        self.llm_response_cache[cache_key] = response
+        logger.debug(f"Cached response for key: {cache_key} (cache size: {len(self.llm_response_cache)})")
+
+    def _safe_invoke_llm(self, llm_backend: Any, prompt: str, backend_name: str) -> Optional[str]:
+        """Safely invoke LLM backend with proper error handling and multiple fallback strategies.
+        
+        Args:
+            llm_backend: Initialized LLM backend instance
+            prompt: The prompt to send
+            backend_name: Name of the backend (for logging)
+            
+        Returns:
+            Response text or None if invocation fails
+        """
+        if llm_backend is None:
+            return None
+        
+        # Check cache first
+        cache_key = self._get_cache_key(prompt, backend_name)
+        cached_response = self._get_cached_response(cache_key)
+        if cached_response:
+            logger.info(f"[{backend_name}] Using cached response")
+            return cached_response
+        
+        try:
+            logger.debug(f"Invoking {backend_name} LLM backend for code generation")
+            text = None
+            
+            # Strategy 1: Try chat model interface with messages
+            try:
+                if _HumanMessage is not None:
+                    logger.debug(f"[{backend_name}] Attempting invoke with HumanMessage")
+                    response = llm_backend.invoke([_HumanMessage(content=prompt)])
+                    text = response.content if hasattr(response, 'content') else str(response)
+                    logger.info(f"[{backend_name}] Successfully generated code via chat interface")
+                    # Cache the successful response
+                    self._cache_response(cache_key, text)
+                    return text
+                else:
+                    logger.debug(f"[{backend_name}] HumanMessage not available: {_HumanMessage_Import_Error}")
+            except (AttributeError, TypeError, ModuleNotFoundError) as e:
+                logger.debug(f"[{backend_name}] Chat interface failed: {type(e).__name__}: {e}")
+            
+            # Strategy 2: Try direct call interface
+            try:
+                logger.debug(f"[{backend_name}] Attempting direct call interface")
+                response = llm_backend(prompt)
+                text = response if isinstance(response, str) else str(response)
+                logger.info(f"[{backend_name}] Successfully generated code via direct call")
+                # Cache the successful response
+                self._cache_response(cache_key, text)
+                return text
+            except (TypeError, AttributeError, ModuleNotFoundError) as e:
+                logger.debug(f"[{backend_name}] Direct call failed: {type(e).__name__}: {e}")
+            
+            # Strategy 3: Try __call__ method explicitly
+            try:
+                logger.debug(f"[{backend_name}] Attempting __call__ method")
+                response = llm_backend.__call__(prompt)
+                text = response if isinstance(response, str) else str(response)
+                logger.info(f"[{backend_name}] Successfully generated code via __call__")
+                # Cache the successful response
+                self._cache_response(cache_key, text)
+                return text
+            except Exception as e:
+                logger.debug(f"[{backend_name}] __call__ method failed: {type(e).__name__}: {e}")
+            
+            # All strategies failed
+            logger.warning(f"[{backend_name}] All LLM invocation strategies failed")
+            return None
+            
+        except Exception as e:
+            logger.error(f"[{backend_name}] Unexpected error during LLM invocation: {type(e).__name__}: {e}")
+            return None
+
     def _generate_code_via_llm(self, state: DashboardGenerationState) -> DashboardGenerationState:
         """Generate full dashboard code (JSX/HTML + JS) using an LLM.
 
@@ -1462,6 +1669,7 @@ class LangGraphDashboardBuilder:
             "- Include export functionality (download dashboard as HTML)",
             "- Add fullscreen toggle for charts",
             "- Implement smooth transitions (300ms ease)",
+            "- Use multi-color palettes with visible borders on chart elements for clarity",
             "",
             "## Code Quality",
             "- Write clean, well-commented code",
@@ -1508,6 +1716,7 @@ class LangGraphDashboardBuilder:
             "✓ Complete HTML structure with proper DOCTYPE",
             "✓ Embedded CSS with modern design system",
             "✓ JavaScript with actual chart rendering logic",
+            "✓ Include at least 4-6 varied charts when the data supports it (bar, line, scatter, heatmap, etc.)",
             "✓ KPI cards showing key metrics with trend indicators",
             "✓ Interactive chart containers with Plotly",
             "✓ Insights panel with formatted text",
@@ -1534,32 +1743,50 @@ class LangGraphDashboardBuilder:
         try:
             if LCGroq is not None and os.getenv("GROQ_API_KEY"):
                 backend_name = "groq"
-                llm_backend = LCGroq(model=os.getenv("GROQ_MODEL", "llama-3.1-70b-versatile"), temperature=0.1)
+                groq_model_env = os.getenv("GROQ_MODEL", "")
+                groq_model = groq_model_env if groq_model_env else "openai/gpt-oss-120b"
+                try:
+                    llm_backend = LCGroq(
+                        model=groq_model, 
+                        temperature=0.1,
+                        timeout=30.0
+                    )
+                    logger.debug("Successfully initialized Groq LLM backend")
+                except TypeError as te:
+                    # ChatGroq might not support all parameters, try basic initialization
+                    logger.warning(f"Groq initialization with timeout failed: {te}, retrying without timeout")
+                    llm_backend = LCGroq(
+                        model=groq_model,
+                        temperature=0.1
+                    )
             elif LCOpenAI is not None and os.getenv("OPENAI_API_KEY"):
                 backend_name = "openai"
                 if _USE_CHAT_MODEL:
                     llm_backend = LCOpenAI(
                         model="gpt-4" if os.getenv("USE_GPT4", "false").lower() == "true" else "gpt-3.5-turbo",
                         temperature=0.1,
-                        max_tokens=4000
+                        max_tokens=4000,
+                        timeout=30.0
                     )
                 else:
                     llm_backend = LCOpenAI(temperature=0.1, max_tokens=4000)
+                logger.debug("Successfully initialized OpenAI LLM backend")
+            else:
+                if LCGroq is None and os.getenv("GROQ_API_KEY"):
+                    logger.debug(f"Groq import failed: {_GROQ_IMPORT_ERROR}")
+                if LCOpenAI is None and os.getenv("OPENAI_API_KEY"):
+                    logger.debug("OpenAI import failed")
         except Exception as e:
-            logger.warning(f"Failed initializing preferred LLM backend: {e}")
+            logger.warning(f"Failed initializing LLM backend ({backend_name}): {type(e).__name__}: {e}")
 
         if llm_backend is not None:
             try:
                 logger.info(f"Attempting {backend_name} LLM-based dashboard code generation...")
-                # For chat models, we need to format as messages
-                try:
-                    from langchain.schema import HumanMessage as _HumanMessage  # type: ignore
-                    response = llm_backend.invoke([_HumanMessage(content=prompt)])
-                    text = response.content if hasattr(response, 'content') else str(response)
-                except Exception:
-                    # Some non-chat models use call with string
-                    response = llm_backend(prompt)
-                    text = response if isinstance(response, str) else str(response)
+                # Use the safe invoke helper method
+                text = self._safe_invoke_llm(llm_backend, prompt, backend_name)
+                
+                if text is None:
+                    raise RuntimeError(f"LLM backend ({backend_name}) invocation returned None")
                 
                 logger.info(f"LLM response received, length: {len(text)} chars")
                 
@@ -1623,12 +1850,14 @@ class LangGraphDashboardBuilder:
                     logger.warning("LLM response format not recognized, falling back to deterministic generator")
                     
             except Exception as e:
-                logger.warning(f"LLM generation failed: {e}, falling back to deterministic generator")
+                logger.warning(f"LLM generation failed ({type(e).__name__}): {e}, falling back to deterministic generator")
         else:
-            if LCOpenAI is None:
-                logger.info("LangChain OpenAI not available, using deterministic generator")
+            if LCGroq is None and os.getenv("GROQ_API_KEY"):
+                logger.debug(f"Groq not available, skipping LLM generation: {_GROQ_IMPORT_ERROR}")
+            elif LCOpenAI is None and os.getenv("OPENAI_API_KEY"):
+                logger.debug("OpenAI not available, skipping LLM generation")
             else:
-                logger.info("OPENAI_API_KEY not set, using deterministic generator")
+                logger.debug("No LLM API keys configured, using deterministic generator")
 
         # Fallback: deterministic generator
         try:
@@ -1705,6 +1934,12 @@ class LangGraphDashboardBuilder:
                     passed_checks.append("Plotly chart rendering calls present")
                 else:
                     warnings.append("Plotly imported but no rendering calls found")
+
+                plot_call_count = code.count("Plotly.newPlot") + code.count("Plotly.react")
+                if plot_call_count < 3:
+                    warnings.append("Limited chart count detected (Plotly render calls < 3); consider adding more visuals when data allows")
+                else:
+                    passed_checks.append("Multiple chart render calls detected")
             
             # Check for chart container IDs
             chart_containers = []

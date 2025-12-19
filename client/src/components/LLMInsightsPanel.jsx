@@ -8,7 +8,7 @@ import PropTypes from "prop-types";
  * Shows different insight types based on dashboard type:
  * - Executive: Summary, KPIs, Recommendations, Business Impact
  * - Data Quality: Quality Score, Issues, Remediation
- * - Exploratory: Patterns, Correlations, Hypotheses
+ * - Exploratory: Patterns, Correlations, Hypothesis
  */
 const LLMInsightsPanel = ({ llmInsights, dashboardType }) => {
   if (!llmInsights || Object.keys(llmInsights).length === 0) {
@@ -258,14 +258,14 @@ const LLMInsightsPanel = ({ llmInsights, dashboardType }) => {
         </div>
       )}
 
-      {/* Hypotheses */}
-      {llmInsights.hypotheses && llmInsights.hypotheses.length > 0 && (
+      {/* Hypothesis  */}
+      {llmInsights.Hypothesis && llmInsights.Hypothesis.length > 0 && (
         <div className="bg-cyan-50 dark:bg-cyan-900/20 p-4 rounded-lg border border-cyan-200 dark:border-cyan-800">
           <h3 className="text-lg font-semibold text-cyan-900 dark:text-cyan-100 mb-3 flex items-center">
-            <span className="mr-2">💭</span> Testable Hypotheses
+            <span className="mr-2">💭</span> Testable Hypothesis
           </h3>
           <ol className="space-y-2 list-decimal list-inside">
-            {llmInsights.hypotheses.map((hyp, idx) => (
+            {llmInsights.Hypothesis.map((hyp, idx) => (
               <li key={idx} className="text-cyan-800 dark:text-cyan-200">
                 {hyp}
               </li>

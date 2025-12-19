@@ -106,7 +106,8 @@ class LLMInsightsEngine:
         # Prefer Groq via LangChain if available
         if groq_key and LC_GROQ_AVAILABLE and ChatGroq is not None:
             provider = "groq"
-            groq_model = os.getenv("GROQ_MODEL", model_name or "llama-3.1-70b-versatile")
+            groq_model_env = os.getenv("GROQ_MODEL", "")
+            groq_model = groq_model_env if groq_model_env else (model_name or "openai/gpt-oss-120b")
             try:
                 self.llm = ChatGroq(model=groq_model, temperature=temperature)
             except Exception as e:
@@ -116,7 +117,8 @@ class LLMInsightsEngine:
             provider = "groq-direct"
             try:
                 self.groq_client = GroqClient(api_key=groq_key)
-                self.groq_model = os.getenv("GROQ_MODEL", model_name or "llama-3.1-70b-versatile")
+                groq_model_env = os.getenv("GROQ_MODEL", "")
+                self.groq_model = groq_model_env if groq_model_env else (model_name or "openai/gpt-oss-120b")
                 self.temperature = float(temperature)
             except Exception as e:
                 raise ValueError(f"Failed to initialize Groq direct client: {e}")
@@ -406,9 +408,9 @@ class LLMInsightsEngine:
             "5. **Anomalies & Outliers** (Unusual observations worth investigating)\n"
             "6. **Statistical Highlights** (Interesting statistical findings)\n"
             "7. **Recommended Deep Dives** (Areas warranting further analysis)\n"
-            "8. **Hypothesis Generation** (3-5 testable hypotheses based on patterns)\n\n"
+            "8. **Hypothesis Generation** (3-5 testable Hypothesis  based on patterns)\n\n"
             "Format as JSON with keys: patterns, correlations, distributions, segmentation, "
-            "anomalies, statistical_highlights, deep_dive_recommendations, hypotheses"
+            "anomalies, statistical_highlights, deep_dive_recommendations, Hypothesis "
         )
 
         try:
@@ -575,7 +577,7 @@ class LLMInsightsEngine:
                 "Analyze distribution shapes",
                 "Explore categorical relationships"
             ],
-            "hypotheses": [
+            "Hypothesis ": [
                 "Strong correlations may indicate causal relationships",
                 "Distribution patterns suggest natural segmentation",
                 "Outliers may represent special cases or errors"
@@ -646,9 +648,9 @@ def generate_insights_summary(insights: Dict[str, Any]) -> List[str]:
             for pattern in insights['patterns'][:3]:
                 summary.append(f"  • {pattern}")
         
-        if insights.get('hypotheses'):
-            summary.append("💭 Hypotheses to Test:")
-            for hyp in insights['hypotheses'][:3]:
+        if insights.get('Hypothesis '):
+            summary.append("💭 Hypothesis  to Test:")
+            for hyp in insights['Hypothesis '][:3]:
                 summary.append(f"  • {hyp}")
     
     return summary
