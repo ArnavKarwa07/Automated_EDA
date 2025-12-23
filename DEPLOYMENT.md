@@ -1,6 +1,7 @@
 # Automated EDA - Complete Deployment Guide
 
 ## Table of Contents
+
 1. [Project Overview](#project-overview)
 2. [Prerequisites](#prerequisites)
 3. [Local Development Setup](#local-development-setup)
@@ -18,6 +19,7 @@
 ## Project Overview
 
 **Automated EDA** is a comprehensive web application for automated exploratory data analysis with:
+
 - **Frontend**: React + Vite + Tailwind CSS
 - **Backend**: FastAPI + LangGraph + Groq AI
 - **Database**: Supabase (PostgreSQL) with RLS
@@ -31,6 +33,7 @@
 ## Prerequisites
 
 ### Required Tools
+
 - **Docker** (v20.10+) and **Docker Compose** (v2.0+)
 - **Git** for version control
 - **GitHub** account (for CI/CD)
@@ -38,6 +41,7 @@
 - **Groq API Key** (free from https://console.groq.com)
 
 ### System Requirements
+
 - **Memory**: Minimum 4GB RAM, Recommended 8GB+
 - **Disk Space**: 10GB+ available
 - **OS**: Linux, macOS, or Windows (with WSL2 recommended for Windows)
@@ -61,6 +65,7 @@ cp client/.env.example client/.env
 ### Step 2: Configure Local Environment
 
 **Edit `server/.env`:**
+
 ```bash
 # Database (local PostgreSQL)
 DB_USER=postgres
@@ -86,6 +91,7 @@ SUPABASE_KEY=your_supabase_key
 ```
 
 **Edit `client/.env`:**
+
 ```bash
 VITE_API_BASE_URL=http://localhost:8000
 ```
@@ -235,10 +241,10 @@ For file storage in Supabase:
 
 ```sql
 -- Create storage buckets
-INSERT INTO storage.buckets (id, name, public) 
+INSERT INTO storage.buckets (id, name, public)
 VALUES ('datasets', 'datasets', false);
 
-INSERT INTO storage.buckets (id, name, public) 
+INSERT INTO storage.buckets (id, name, public)
 VALUES ('dashboards', 'dashboards', false);
 ```
 
@@ -287,6 +293,7 @@ alembic downgrade -1
 ### Configure JWT Authentication
 
 In `server/.env`:
+
 ```bash
 JWT_SECRET=your_very_secure_random_string_here
 JWT_ALGORITHM=HS256
@@ -294,6 +301,7 @@ JWT_EXPIRATION_HOURS=24
 ```
 
 Generate a secure secret:
+
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
@@ -311,30 +319,30 @@ The backend uses JWT tokens. To integrate with Supabase Auth:
 The frontend uses Supabase Auth. Create `client/src/services/authService.js`:
 
 ```javascript
-import { createClient } from '@supabase/supabase-js'
+import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
   import.meta.env.VITE_SUPABASE_ANON_KEY
-)
+);
 
 export const authService = {
   async signup(email, password) {
-    return await supabase.auth.signUp({ email, password })
+    return await supabase.auth.signUp({ email, password });
   },
-  
+
   async login(email, password) {
-    return await supabase.auth.signInWithPassword({ email, password })
+    return await supabase.auth.signInWithPassword({ email, password });
   },
-  
+
   async logout() {
-    return await supabase.auth.signOut()
+    return await supabase.auth.signOut();
   },
-  
+
   async getCurrentUser() {
-    return await supabase.auth.getUser()
-  }
-}
+    return await supabase.auth.getUser();
+  },
+};
 ```
 
 ---
@@ -389,6 +397,7 @@ gh workflow run ci-cd.yml
 ### Option 1: Deploy to VPS (Recommended)
 
 #### Prerequisites
+
 - Ubuntu 20.04+ VPS (DigitalOcean, Linode, AWS EC2, etc.)
 - SSH access to VPS
 - Domain name pointing to VPS IP
@@ -515,6 +524,7 @@ docker-compose exec -T postgres psql -U postgres automated_eda < backup.sql
 ### Performance Monitoring
 
 Monitor using:
+
 - **Supabase Dashboard** - Database metrics
 - **Docker Stats** - Container resource usage
   ```bash
@@ -578,6 +588,7 @@ docker-compose restart postgres
 #### 3. CORS Errors
 
 Update `CORS_ORIGINS` in `.env`:
+
 ```bash
 CORS_ORIGINS=https://your-domain.com,https://www.your-domain.com
 ```
@@ -631,15 +642,18 @@ docker-compose build --progress=plain 2>&1 | tail -50
 ### Getting Help
 
 1. **Check logs first**
+
    ```bash
    docker-compose logs -f <service-name>
    ```
 
 2. **Check API documentation**
+
    - Go to http://localhost:8000/docs (Swagger UI)
    - Go to http://localhost:8000/redoc (ReDoc)
 
 3. **Database issues**
+
    - Check Supabase dashboard
    - Verify RLS policies are not blocking queries
 

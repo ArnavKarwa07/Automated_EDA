@@ -4,22 +4,23 @@ Authentication API endpoints
 
 from fastapi import APIRouter, HTTPException, Depends, status
 from services.auth_service import (
-    AuthService, 
-    TokenData, 
-    LoginRequest, 
+    AuthService,
+    TokenData,
+    LoginRequest,
     SignupRequest,
     get_current_user,
-    Token
+    Token,
 )
 from services.database_manager import db_manager
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
+
 @router.post("/signup", response_model=Token)
 async def signup(request: SignupRequest):
     """
     Register a new user
-    
+
     - **email**: User email address
     - **password**: User password
     - **username**: Optional username
@@ -31,35 +32,35 @@ async def signup(request: SignupRequest):
         if user:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already registered"
+                detail="Email already registered",
             )
     except:
         pass
-    
+
     return await AuthService.signup(
         email=request.email,
         password=request.password,
         username=request.username,
-        full_name=request.full_name
+        full_name=request.full_name,
     )
+
 
 @router.post("/login", response_model=Token)
 async def login(request: LoginRequest):
     """
     Authenticate user with email and password
-    
+
     - **email**: User email address
     - **password**: User password
     """
-    return await AuthService.login(
-        email=request.email,
-        password=request.password
-    )
+    return await AuthService.login(email=request.email, password=request.password)
+
 
 @router.post("/refresh", response_model=Token)
 async def refresh_token(current_user: TokenData = Depends(get_current_user)):
     """Refresh access token"""
     return AuthService.refresh_token(current_user)
+
 
 @router.get("/me")
 async def get_current_user_info(current_user: TokenData = Depends(get_current_user)):
@@ -67,10 +68,10 @@ async def get_current_user_info(current_user: TokenData = Depends(get_current_us
     user = await db_manager.get_user_profile(current_user.user_id)
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="User not found"
         )
     return user
+
 
 @router.put("/me")
 async def update_current_user(
@@ -78,7 +79,7 @@ async def update_current_user(
     full_name: str = None,
     username: str = None,
     avatar_url: str = None,
-    organization: str = None
+    organization: str = None,
 ):
     """Update current user profile"""
     updates = {}
@@ -90,14 +91,14 @@ async def update_current_user(
         updates["avatar_url"] = avatar_url
     if organization:
         updates["organization"] = organization
-    
+
     user = await db_manager.update_user_profile(current_user.user_id, **updates)
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to update profile"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to update profile"
         )
     return user
+
 
 @router.post("/logout")
 async def logout(current_user: TokenData = Depends(get_current_user)):

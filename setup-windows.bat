@@ -52,9 +52,9 @@ if not exist "client\.env" (
 )
 echo.
 
-REM Start Docker Compose
-echo [5/5] Starting Docker services...
-docker-compose up -d
+REM Start Docker Compose in development mode
+echo [5/5] Starting Docker services in development mode...
+docker-compose -f docker-compose.dev.yml up -d --build
 
 echo.
 echo ===============================================
@@ -69,8 +69,8 @@ echo   API:        http://localhost:8000
 echo   API Docs:   http://localhost:8000/docs
 echo.
 echo Useful commands:
-echo   View logs:      docker-compose logs -f
-echo   Stop services:  docker-compose down
-echo   Restart:        docker-compose restart
+echo   View logs:      docker-compose -f docker-compose.dev.yml logs -f
+echo   Stop services:  docker-compose -f docker-compose.dev.yml down
+echo   Restart:        docker-compose -f docker-compose.dev.yml restart
 echo.
 pause

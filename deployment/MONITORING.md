@@ -7,22 +7,22 @@
 ```yaml
 # Add to docker-compose.yml
 
-  prometheus:
-    image: prom/prometheus:latest
-    volumes:
-      - ./deployment/prometheus.yml:/etc/prometheus/prometheus.yml
-      - prometheus_data:/prometheus
-    ports:
-      - "9090:9090"
+prometheus:
+  image: prom/prometheus:latest
+  volumes:
+    - ./deployment/prometheus.yml:/etc/prometheus/prometheus.yml
+    - prometheus_data:/prometheus
+  ports:
+    - "9090:9090"
 
-  grafana:
-    image: grafana/grafana:latest
-    ports:
-      - "3001:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-    volumes:
-      - grafana_data:/var/lib/grafana
+grafana:
+  image: grafana/grafana:latest
+  ports:
+    - "3001:3000"
+  environment:
+    - GF_SECURITY_ADMIN_PASSWORD=admin
+  volumes:
+    - grafana_data:/var/lib/grafana
 ```
 
 ### 2. Monitor Containers
@@ -46,7 +46,7 @@ docker-compose logs --tail=100 backend
 
 # Check database
 docker-compose exec postgres psql -U postgres -c "
-  SELECT pid, usename, application_name, state 
+  SELECT pid, usename, application_name, state
   FROM pg_stat_activity;
 "
 ```
@@ -134,10 +134,12 @@ redis-cli CONFIG SET maxmemory-policy allkeys-lru
 ## Uptime Monitoring
 
 Use services like:
+
 - UptimeRobot (https://uptimerobot.com)
 - Better Uptime (https://betterstack.com)
 - Pingdom (https://www.pingdom.com)
 
 Configure to check:
+
 - https://your-domain.com/api/health
 - https://your-domain.com (frontend)

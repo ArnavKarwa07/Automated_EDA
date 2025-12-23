@@ -2,9 +2,9 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
 
 env:
   REGISTRY: ghcr.io
@@ -13,7 +13,7 @@ env:
 jobs:
   test-backend:
     runs-on: ubuntu-latest
-    
+
     services:
       postgres:
         image: postgres:15-alpine
@@ -28,7 +28,7 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
-      
+
       redis:
         image: redis:7-alpine
         options: >-
@@ -40,151 +40,151 @@ jobs:
           - 6379:6379
 
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up Python 3.11
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
-        cache: 'pip'
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r server/requirements.txt
-        pip install pytest pytest-asyncio pytest-cov
-    
-    - name: Lint with pylint
-      run: |
-        pip install pylint
-        pylint server/services/*.py server/api.py server/main.py --disable=all --enable=E,F || true
-    
-    - name: Run backend tests
-      env:
-        DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
-        REDIS_URL: redis://localhost:6379/0
-        GROQ_API_KEY: test_key
-        JWT_SECRET: test_secret
-        SUPABASE_URL: https://test.supabase.co
-        SUPABASE_KEY: test_key
-      run: |
-        cd server
-        pytest -v --cov=services --cov-report=xml || true
+      - uses: actions/checkout@v3
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r server/requirements.txt
+          pip install pytest pytest-asyncio pytest-cov
+
+      - name: Lint with pylint
+        run: |
+          pip install pylint
+          pylint server/services/*.py server/api.py server/main.py --disable=all --enable=E,F || true
+
+      - name: Run backend tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+          REDIS_URL: redis://localhost:6379/0
+          GROQ_API_KEY: test_key
+          JWT_SECRET: test_secret
+          SUPABASE_URL: https://test.supabase.co
+          SUPABASE_KEY: test_key
+        run: |
+          cd server
+          pytest -v --cov=services --cov-report=xml || true
 
   test-frontend:
     runs-on: ubuntu-latest
-    
+
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
-        cache: 'npm'
-        cache-dependency-path: client/package-lock.json
-    
-    - name: Install dependencies
-      run: |
-        cd client
-        npm ci
-    
-    - name: Lint
-      run: |
-        cd client
-        npm run lint || true
-    
-    - name: Build
-      run: |
-        cd client
-        npm run build
+      - uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+          cache: "npm"
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd client
+          npm ci
+
+      - name: Lint
+        run: |
+          cd client
+          npm run lint || true
+
+      - name: Build
+        run: |
+          cd client
+          npm run build
 
   build-and-push:
     needs: [test-backend, test-frontend]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
-    
+
     permissions:
       contents: read
       packages: write
-    
+
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
-    
-    - name: Log in to Container Registry
-      uses: docker/login-action@v2
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@v4
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-        tags: |
-          type=ref,event=branch
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          type=sha,prefix={{branch}}-
-          type=raw,value=latest,enable={{is_default_branch}}
-    
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v4
-      with:
-        context: .
-        push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+      - uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    
+
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Deploy to production
-      env:
-        DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
-        DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-        DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-        DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-      run: |
-        mkdir -p ~/.ssh
-        echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
-        chmod 600 ~/.ssh/deploy_key
-        ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts
-        
-        ssh -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST << 'EOF'
-        cd $DEPLOY_PATH
-        docker-compose pull
-        docker-compose up -d
-        docker-compose exec -T backend alembic upgrade head
-        EOF
+      - uses: actions/checkout@v3
+
+      - name: Deploy to production
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts
+
+          ssh -i ~/.ssh/deploy_key $DEPLOY_USER@$DEPLOY_HOST << 'EOF'
+          cd $DEPLOY_PATH
+          docker-compose pull
+          docker-compose up -d
+          docker-compose exec -T backend alembic upgrade head
+          EOF
 
   security-scan:
     runs-on: ubuntu-latest
-    
+
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Run Trivy vulnerability scanner
-      uses: aquasecurity/trivy-action@master
-      with:
-        scan-type: 'fs'
-        scan-ref: '.'
-        format: 'sarif'
-        output: 'trivy-results.sarif'
-    
-    - name: Upload Trivy results to GitHub Security
-      uses: github/codeql-action/upload-sarif@v2
-      with:
-        sarif_file: 'trivy-results.sarif'
+      - uses: actions/checkout@v3
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: "fs"
+          scan-ref: "."
+          format: "sarif"
+          output: "trivy-results.sarif"
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: "trivy-results.sarif"
