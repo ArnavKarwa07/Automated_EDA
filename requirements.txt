@@ -28,7 +28,6 @@ langchain-core==0.3.13
 langchain-groq>=0.1.0
 groq>=0.30.0,<1.0
 missingno==0.5.2
-ydata-profiling==4.6.4
 aiofiles==23.2.0
 
 # Dashboard Automation
